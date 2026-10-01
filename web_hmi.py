@@ -9,7 +9,6 @@ from pymodbus.client import ModbusTcpClient
 
 # ============================================================
 # KONFIGURASI
-# ============================================================
 
 HOST = "127.0.0.1"
 CONTROLLER_PORT = 503

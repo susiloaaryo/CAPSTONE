@@ -116,6 +116,7 @@ THEMES = {
         "ok_bg": "#e8f8ef", "ok_border": "#bfe9d1", "ok_text": "#0c8a55",
         "warn_bg": "#fff6df", "warn_border": "#f0dfab", "warn_text": "#9b6a00",
         "bad_bg": "#ffecee", "bad_border": "#efc1c9", "bad_text": "#b42334",
+        "info_bg": "#e6f0ff", "info_border": "#bcd3f7", "info_text": "#1d5fc4",
         "note_bg": "#f7f9fb", "note_border": "#cbd4df",
         "btn_bg": "#ffffff", "btn_border": "#cdd5e1", "btn_hover": "#8391a5",
         "live_bg": "#e7f8ef", "live_border": "#bdebd3", "live_text": "#0d8a55",
@@ -134,6 +135,7 @@ THEMES = {
         "ok_bg": "#0f2b20", "ok_border": "#1b5a3f", "ok_text": "#4ade9b",
         "warn_bg": "#2f2610", "warn_border": "#5c4a17", "warn_text": "#f5c24d",
         "bad_bg": "#331519", "bad_border": "#6b2530", "bad_text": "#ff7d8c",
+        "info_bg": "#10243f", "info_border": "#24456f", "info_text": "#6db3ff",
         "note_bg": "#1a2438", "note_border": "#3a4a66",
         "btn_bg": "#1c2840", "btn_border": "#34445f", "btn_hover": "#6b7f9e",
         "live_bg": "#0f2b20", "live_border": "#1b5a3f", "live_text": "#4ade9b",
@@ -540,6 +542,67 @@ hr {
 .step-line.done { background:var(--ok-text); }
 
 .stepper-note { color:var(--muted); font-size:12px; margin:8px 2px 0; }
+
+.section-note {
+    margin-left:10px;
+    color:var(--muted);
+    font-size:12px;
+    font-weight:600;
+}
+
+.tbl-wrap {
+    max-height:430px;
+    overflow:auto;
+    border:1px solid var(--border);
+    border-radius:12px;
+    background:var(--card);
+    margin-bottom:10px;
+}
+
+.tbl-wrap .tbl { border:none; border-radius:0; }
+
+.tbl-wrap .tbl th {
+    position:sticky;
+    top:0;
+    z-index:1;
+}
+
+.tbl .mono { font-family:Consolas, "Courier New", monospace; white-space:nowrap; }
+.tbl .num { text-align:right; }
+
+.soe tbody tr:hover td { background:var(--chip-bg); }
+
+.soe-time { color:var(--text); font-weight:700; margin-right:8px; }
+.soe-date { color:var(--muted); font-size:11px; }
+.soe-desc { width:100%; }
+
+.pill {
+    display:inline-block;
+    min-width:84px;
+    text-align:center;
+    padding:3px 9px;
+    border-radius:999px;
+    border:1px solid var(--chip-border);
+    background:var(--chip-bg);
+    color:var(--chip-text);
+    font-size:10px;
+    font-weight:800;
+    letter-spacing:.04em;
+}
+.pill.ok { background:var(--ok-bg); border-color:var(--ok-border); color:var(--ok-text); }
+.pill.warn { background:var(--warn-bg); border-color:var(--warn-border); color:var(--warn-text); }
+.pill.bad { background:var(--bad-bg); border-color:var(--bad-border); color:var(--bad-text); }
+.pill.info { background:var(--info-bg); border-color:var(--info-border); color:var(--info-text); }
+
+.empty-state {
+    background:var(--card);
+    border:1px dashed var(--border);
+    border-radius:12px;
+    padding:22px;
+    text-align:center;
+    color:var(--muted);
+    font-size:13px;
+}
 
 svg.sld { display:block; }
 .blinking { animation: blink 1s linear infinite; }
@@ -1111,16 +1174,80 @@ def build_sld(rtus, controller):
 # SOE
 # ============================================================
 
-def read_soe(limit=15):
+# Gaya tiap tahap di tabel SOE: (label, jenis pill)
+SOE_STAGE = {
+    "lokalisasi": ("LOKALISASI", "bad"),
+    "isolasi": ("ISOLASI", "warn"),
+    "restorasi": ("RESTORASI", "info"),
+    "selesai": ("SELESAI", "ok"),
+    "selesai sebagian": ("SEBAGIAN", "warn"),
+    "kelayakan": ("KELAYAKAN", "warn"),
+    "proteksi": ("PROTEKSI", "warn"),
+    "timeout": ("TIMEOUT", "bad"),
+    "kesalahan": ("KESALAHAN", "bad"),
+    "test": ("TEST", "mute"),
+}
+
+# Kata kunci pada keterangan yang menandakan langkah gagal
+SOE_FAIL_WORDS = ("gagal", "ditolak", "lock-out", "kontradiktif", "hilang")
+
+
+def read_soe(limit=20):
+    """Baca soe.csv. Hasil: (daftar event terbaru dulu, total event)."""
     if not SOE_FILE.exists():
-        return []
+        return [], 0
 
     try:
-        with open(SOE_FILE, "r", encoding="utf-8") as f:
-            rows = [line.rstrip("\n") for line in f if line.strip()]
-        return rows[-limit:]
-    except OSError:
-        return []
+        with open(SOE_FILE, "r", encoding="utf-8", newline="") as f:
+            reader = csv.DictReader(f)
+            rows = [
+                {k: (v or "").strip() for k, v in row.items() if k}
+                for row in reader
+                if any((v or "").strip() for v in row.values())
+            ]
+    except (OSError, csv.Error):
+        return [], 0
+
+    return rows[::-1][:limit], len(rows)
+
+
+def build_soe_table(rows):
+    body = []
+    for row in rows:
+        stage_key = row.get("tahap", "").lower()
+        label, kind = SOE_STAGE.get(stage_key, (stage_key.upper() or "-", "mute"))
+        desc = row.get("keterangan", "")
+
+        failed = any(word in desc.lower() for word in SOE_FAIL_WORDS)
+        if failed and kind not in ("bad",):
+            kind = "bad"
+
+        stamp = row.get("waktu", "")
+        date, _, clock = stamp.partition(" ")
+        if not clock:
+            date, clock = "", stamp
+
+        try:
+            duration = f"{float(row.get('detik', '')):.2f} s"
+        except ValueError:
+            duration = "—"
+
+        body.append(
+            "<tr>"
+            f'<td class="mono"><span class="soe-time">{html.escape(clock)}</span>'
+            f'<span class="soe-date">{html.escape(date)}</span></td>'
+            f'<td><span class="pill {kind}">{html.escape(label)}</span></td>'
+            f'<td class="soe-desc">{html.escape(desc)}</td>'
+            f'<td class="mono num">{duration}</td>'
+            "</tr>"
+        )
+
+    return (
+        '<div class="tbl-wrap"><table class="tbl soe"><thead><tr>'
+        "<th>Waktu</th><th>Tahap</th><th>Keterangan</th>"
+        '<th class="num">Durasi</th>'
+        "</tr></thead><tbody>" + "".join(body) + "</tbody></table></div>"
+    )
 
 
 # ============================================================
@@ -1752,17 +1879,23 @@ st.markdown(
 # SOE
 # ============================================================
 
+soe_rows, soe_total = read_soe(20)
+
 st.markdown(
-    '<div class="section">🧾 Sequence of Events</div>',
+    '<div class="section">🧾 Sequence of Events'
+    f'<span class="section-note">{soe_total} event'
+    f'{" · menampilkan 20 terbaru" if soe_total > 20 else ""}</span></div>',
     unsafe_allow_html=True,
 )
 
-soe = read_soe(18)
-
-if soe:
-    st.code("\n".join(soe), language="text")
+if soe_rows:
+    st.markdown(build_soe_table(soe_rows), unsafe_allow_html=True)
 else:
-    st.info("Belum ada event pada soe.csv.")
+    st.markdown(
+        '<div class="empty-state">Belum ada event. Event akan muncul di sini '
+        "saat controller mendeteksi dan menangani gangguan.</div>",
+        unsafe_allow_html=True,
+    )
 
 
 # ============================================================

@@ -1,0 +1,4 @@
+# Versions chosen for the current simulator API (ModbusSlaveContext and slave= arguments)
+pymodbus==3.7.4
+pandas>=2.2,<3.0
+streamlit>=1.40,<2.0

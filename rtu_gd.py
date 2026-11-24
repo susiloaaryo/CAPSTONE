@@ -1,24 +1,32 @@
 """RTU Gardu Distribusi (GD) - final FLISR simulator.
 
-Ports:
-    GD01 -> 8021 ... GD05 -> 8025
+Endpoints (Modbus TCP 502):
+    GD01 -> 192.168.250.9
+    GD02 -> 192.168.250.5
+    GD03 -> 192.168.250.6
+    GD04 -> 192.168.250.7
+    GD05 -> 192.168.250.8
 
 Contract:
     Slave ID = 1, zero_mode=True
-    DI0/1  = LBS1 DP
-    DI2    = HFD1
-    DI4/5  = LBS2 DP
-    DI6    = HFD2
-    DI8    = UV
-    DI9    = OV
-    CO0    = LBS1 command
-    CO1    = LBS2 command
-    CO2    = reset HFD
-    HR0    = forced HFD1
-    HR1    = forced HFD2
-    HR2    = forced current LBS1
-    HR3    = forced current LBS2
-    HR4    = forced voltage
+    FC01 CO0..9 mirrors EBC CoreDb CS0..9:
+      HFD1, LBS1 CLOSE, LBS1 OPEN, LBS1 LOCAL, LBS1 REMOTE,
+      HFD2, LBS2 CLOSE, LBS2 OPEN, LBS2 LOCAL, LBS2 REMOTE
+    CO10=LBS1 level command; CO11=LBS2 level command; CO12=reset both HFDs
+    EBC FC05 command writes at CS1/2/6/7 are translated to action events;
+    EBC Command entries have reset destinations CS0/CS5 but no source points.
+    These destination writes are translated to per-bay reset events if a
+    reset source is mapped in Easergy Builder.
+    HR0=forced HFD1; HR1=forced HFD2; HR2=current LBS1;
+    HR3=current LBS2; HR4=voltage; HR5=selector LBS1; HR6=selector LBS2
+    Selector HR value: 0=LOCAL, 1=REMOTE. Defaults REMOTE.
+
+Multi-master / multi-client behavior:
+    One shared datastore is served by a single Modbus TCP server on this RTU IP.
+    Multiple TCP clients may connect concurrently. Unit ID 1 is retained for
+    direct mode/testbench; the additional EBC Mdbm Unit ID comes from topologi.py.
+    In mode Y, the server translates EBC FC05 command writes into simulator
+    actions without overwriting the FC01 status image.
 
 Simulator-only coordination:
     fault_state.json pauses CSV progression on every RTU while a test
@@ -41,6 +49,9 @@ from pymodbus.datastore import (
 )
 from pymodbus.server import StartAsyncTcpServer
 
+import topologi as T
+from rtu_command_datablock import EBCCommandCoilDataBlock
+
 
 BASE_DIR = Path(__file__).resolve().parent
 CSV_FILE = BASE_DIR / "dummydata1.csv"
@@ -53,22 +64,30 @@ UV_THRESHOLD_V = 18_000.0
 OV_THRESHOLD_V = 22_000.0
 
 CO = 1
-DI = 2
+# FC01 status image in CO0..CO9; command coils are kept separate.
+CO_STATUS = 1
 HR = 3
 IR = 4
 
-DI_LBS1_OPEN = 0
-DI_LBS1_CLOSE = 1
-DI_HFD1 = 2
-DI_LBS2_OPEN = 4
-DI_LBS2_CLOSE = 5
-DI_HFD2 = 6
-DI_UV = 8
-DI_OV = 9
+# FC01 image aligned one-to-one with EBC M2..M6 / S2..S6 CS:0..9.
+CO_HFD1 = 0
+CO_LBS1_CLOSE = 1
+CO_LBS1_OPEN = 2
+CO_LBS1_LOCAL = 3
+CO_LBS1_REMOTE = 4
+CO_HFD2 = 5
+CO_LBS2_CLOSE = 6
+CO_LBS2_OPEN = 7
+CO_LBS2_LOCAL = 8
+CO_LBS2_REMOTE = 9
 
-CO_LBS1 = 0
-CO_LBS2 = 1
-CO_RESET_HFD = 2
+# Command coils are intentionally outside the FC01 status image.
+CO_LBS1 = 10
+CO_LBS2 = 11
+CO_RESET_HFD = 12
+
+HR_SELECTOR_LBS1 = 5  # 0=LOCAL, 1=REMOTE
+HR_SELECTOR_LBS2 = 6  # 0=LOCAL, 1=REMOTE
 
 IR_CURRENT_LBS1 = 0
 IR_CURRENT_LBS2 = 1
@@ -106,7 +125,7 @@ class GDSimulator:
     def __init__(self, gd_number):
         self.gd_number = int(gd_number)
         self.name = f"GD0{self.gd_number}"
-        self.port = 8020 + self.gd_number
+        self.port = T.port_node(self.gd_number)
 
         if not CSV_FILE.exists():
             raise FileNotFoundError(
@@ -157,20 +176,29 @@ class GDSimulator:
         self._prev_hfd1 = False
         self._prev_hfd2 = False
 
-        self.store = ModbusSlaveContext(
-            co=ModbusSequentialDataBlock(
+        ebc_command_map = {
+            0: ("reset_hfd", 0),
+            1: ("switch", 0, True),
+            2: ("switch", 0, False),
+            5: ("reset_hfd", 1),
+            6: ("switch", 1, True),
+            7: ("switch", 1, False),
+        }
+        self.coil_block = EBCCommandCoilDataBlock(
+            0,
+            [0] * 10 + [
+                self.last_cmd_lbs1,
+                self.last_cmd_lbs2,
                 0,
-                [
-                    self.last_cmd_lbs1,
-                    self.last_cmd_lbs2,
-                    0,
-                ] + [0] * 7,
-            ),
-            di=ModbusSequentialDataBlock(
-                0, [0] * 10
-            ),
+            ],
+            ebc_command_map,
+        )
+        self.store = ModbusSlaveContext(
+            co=self.coil_block,
+            # HR0..HR4 fault/measurement injection; HR5=LBS1 selector,
+            # HR6=LBS2 selector. Selectors default REMOTE for FLISR demos.
             hr=ModbusSequentialDataBlock(
-                0, [0] * 5
+                0, [0] * 5 + [1, 1]
             ),
             ir=ModbusSequentialDataBlock(
                 0, [0] * 4
@@ -178,12 +206,18 @@ class GDSimulator:
             zero_mode=True,
         )
 
+        downstream_unit_id = T.mdbm_unit_id(self.gd_number)
+        slave_contexts = {
+            unit_id: self.store
+            for unit_id in sorted({SLAVE_ID, downstream_unit_id})
+        }
         self.context = ModbusServerContext(
-            slaves={SLAVE_ID: self.store},
+            slaves=slave_contexts,
             single=False,
         )
 
         self._publish_positions(False, False)
+        self._publish_selector_status()
         self._publish_measurement(
             0.0, 0.0, V_NOMINAL, 0, 0
         )
@@ -219,6 +253,15 @@ class GDSimulator:
     def csv_paused(self):
         return self.global_pause()
 
+    def _publish_selector_status(self):
+        """Publish selector feedback; invalid HR values publish neither bit."""
+        modes = self.store.getValues(HR, HR_SELECTOR_LBS1, count=2)
+        mode1, mode2 = int(modes[0]), int(modes[1])
+        self.coil_block.set_internal(CO_LBS1_LOCAL, [int(mode1 == 0)])
+        self.coil_block.set_internal(CO_LBS1_REMOTE, [int(mode1 == 1)])
+        self.coil_block.set_internal(CO_LBS2_LOCAL, [int(mode2 == 0)])
+        self.coil_block.set_internal(CO_LBS2_REMOTE, [int(mode2 == 1)])
+
     def _publish_positions(
         self,
         transit1=False,
@@ -238,12 +281,11 @@ class GDSimulator:
         else:
             b2 = [1, 0]
 
-        self.store.setValues(
-            DI, DI_LBS1_OPEN, b1
-        )
-        self.store.setValues(
-            DI, DI_LBS2_OPEN, b2
-        )
+        # EBC CS ordering interleaves each bay's protection, position and selector.
+        self.coil_block.set_internal(CO_LBS1_OPEN, [b1[0]])
+        self.coil_block.set_internal(CO_LBS1_CLOSE, [b1[1]])
+        self.coil_block.set_internal(CO_LBS2_OPEN, [b2[0]])
+        self.coil_block.set_internal(CO_LBS2_CLOSE, [b2[1]])
 
     def _publish_measurement(
         self,
@@ -267,12 +309,6 @@ class GDSimulator:
             IR,
             IR_VOLTAGE,
             [int(max(0, min(65535, round(voltage))))],
-        )
-        self.store.setValues(
-            DI, DI_UV, [int(uv)]
-        )
-        self.store.setValues(
-            DI, DI_OV, [int(ov)]
         )
 
     async def csv_loop(self):
@@ -380,15 +416,11 @@ class GDSimulator:
                     )
 
                 # Publish HFD independently of CSV.
-                self.store.setValues(
-                    DI,
-                    DI_HFD1,
-                    [int(self.hfd1_latched)],
+                self.coil_block.set_internal(
+                    CO_HFD1, [int(self.hfd1_latched)]
                 )
-                self.store.setValues(
-                    DI,
-                    DI_HFD2,
-                    [int(self.hfd2_latched)],
+                self.coil_block.set_internal(
+                    CO_HFD2, [int(self.hfd2_latched)]
                 )
 
                 last_active = active
@@ -403,51 +435,98 @@ class GDSimulator:
         try:
             while True:
                 coils = self.store.getValues(
-                    CO, 0, count=3
+                    CO, 10, count=3
                 )
 
-                cmd1 = int(coils[CO_LBS1])
-                cmd2 = int(coils[CO_LBS2])
-                reset = int(coils[CO_RESET_HFD])
+                cmd1 = int(coils[0])
+                cmd2 = int(coils[1])
+                reset = int(coils[2])
+                modes = self.store.getValues(HR, HR_SELECTOR_LBS1, count=2)
+                mode1, mode2 = int(modes[0]), int(modes[1])
+                self._publish_selector_status()
+
+                # Writes arriving through HUe Mdbm use the CoreDb CS command
+                # coordinates (1/2 and 6/7). Consume them as events while
+                # preserving those same addresses as FC01 status feedback.
+                now = time.monotonic()
+                for event in self.coil_block.pop_events():
+                    if event[0] == "reset_hfd":
+                        bay = int(event[1])
+                        if bay == 0:
+                            self.hfd1_latched = False
+                            logging.info("[%s] EBC reset HFD1 diterima (FC05 CS:0).", self.name)
+                        else:
+                            self.hfd2_latched = False
+                            logging.info("[%s] EBC reset HFD2 diterima (FC05 CS:5).", self.name)
+                    elif event[0] == "switch":
+                        _, bay, target = event
+                        target = int(bool(target))
+                        mode = mode1 if bay == 0 else mode2
+                        if mode != 1:
+                            logging.warning(
+                                "[%s] EBC %s command ditolak: selector bay %d bukan REMOTE",
+                                self.name, "CLOSE" if target else "OPEN", bay + 1,
+                            )
+                            continue
+                        if bay == 0 and self.transit_lbs1 is None:
+                            self.last_cmd_lbs1 = target
+                            self.coil_block.set_internal(10, [target])
+                            if int(self.lbs1_closed) != target:
+                                self.transit_lbs1 = target
+                                self.transit_end_lbs1 = now + TRANSIT_S
+                                self._publish_positions(True, False)
+                            logging.info(
+                                "[%s] EBC command LBS1 -> %s",
+                                self.name, "CLOSE" if target else "OPEN",
+                            )
+                        elif bay == 1 and self.transit_lbs2 is None:
+                            self.last_cmd_lbs2 = target
+                            self.coil_block.set_internal(11, [target])
+                            if int(self.lbs2_closed) != target:
+                                self.transit_lbs2 = target
+                                self.transit_end_lbs2 = now + TRANSIT_S
+                                self._publish_positions(False, True)
+                            logging.info(
+                                "[%s] EBC command LBS2 -> %s",
+                                self.name, "CLOSE" if target else "OPEN",
+                            )
+                        else:
+                            logging.warning("[%s] EBC command ditolak: LBS%d sedang transit", self.name, bay + 1)
 
                 if reset:
                     self.hfd1_latched = False
                     self.hfd2_latched = False
-                    self.store.setValues(
-                        CO, CO_RESET_HFD, [0]
-                    )
+                    self.coil_block.set_internal(CO_RESET_HFD, [0])
                     logging.info(
                         "[%s] Reset HFD diterima.",
                         self.name,
                     )
 
-                now = time.monotonic()
-
-                if (
-                    cmd1 != self.last_cmd_lbs1
-                    and self.transit_lbs1 is None
-                ):
+                # In LOCAL or invalid selector state, remote coil writes are
+                # ignored and consumed so they cannot execute later on REMOTE.
+                if mode1 == 1:
+                    if (
+                        cmd1 != self.last_cmd_lbs1
+                        and self.transit_lbs1 is None
+                    ):
+                        self.last_cmd_lbs1 = cmd1
+                        self.transit_lbs1 = cmd1
+                        self.transit_end_lbs1 = now + TRANSIT_S
+                        self._publish_positions(True, False)
+                else:
                     self.last_cmd_lbs1 = cmd1
-                    self.transit_lbs1 = cmd1
-                    self.transit_end_lbs1 = (
-                        now + TRANSIT_S
-                    )
-                    self._publish_positions(
-                        True, False
-                    )
 
-                if (
-                    cmd2 != self.last_cmd_lbs2
-                    and self.transit_lbs2 is None
-                ):
+                if mode2 == 1:
+                    if (
+                        cmd2 != self.last_cmd_lbs2
+                        and self.transit_lbs2 is None
+                    ):
+                        self.last_cmd_lbs2 = cmd2
+                        self.transit_lbs2 = cmd2
+                        self.transit_end_lbs2 = now + TRANSIT_S
+                        self._publish_positions(False, True)
+                else:
                     self.last_cmd_lbs2 = cmd2
-                    self.transit_lbs2 = cmd2
-                    self.transit_end_lbs2 = (
-                        now + TRANSIT_S
-                    )
-                    self._publish_positions(
-                        False, True
-                    )
 
                 if (
                     self.transit_lbs1 is not None
@@ -475,15 +554,11 @@ class GDSimulator:
                         False, False
                     )
 
-                self.store.setValues(
-                    DI,
-                    DI_HFD1,
-                    [int(self.hfd1_latched)],
+                self.coil_block.set_internal(
+                    CO_HFD1, [int(self.hfd1_latched)]
                 )
-                self.store.setValues(
-                    DI,
-                    DI_HFD2,
-                    [int(self.hfd2_latched)],
+                self.coil_block.set_internal(
+                    CO_HFD2, [int(self.hfd2_latched)]
                 )
 
                 await asyncio.sleep(CONTROL_STEP_S)
@@ -502,10 +577,11 @@ async def run_rtu(gd_number):
 
     logging.info("======================================")
     logging.info(
-        "RTU [%s] berjalan di port %d (Slave ID: %d)",
+        "RTU [%s] berjalan di %s:%d (Unit ID aktif: %s)",
         sim.name,
+        T.ip_node(sim.gd_number),
         sim.port,
-        SLAVE_ID,
+        sorted({SLAVE_ID, T.mdbm_unit_id(sim.gd_number)}),
     )
     logging.info(
         "GD HR0=HFD1, HR1=HFD2; "
@@ -513,6 +589,10 @@ async def run_rtu(gd_number):
     )
     logging.info(
         "DP: CLOSED=01, OPEN=10, TRANSIT=00"
+    )
+    logging.info(
+        "Multi-client ready: direct/testbench Unit ID 1 + EBC Mdbm Unit ID "
+        f"{T.mdbm_unit_id(sim.gd_number)}; FC01 status / FC05 EBC commands."
     )
     logging.info("======================================")
 
@@ -525,7 +605,7 @@ async def run_rtu(gd_number):
     try:
         await StartAsyncTcpServer(
             context=sim.context,
-            address=("0.0.0.0", sim.port),
+            address=(T.ip_node(sim.gd_number), sim.port),
         )
     finally:
         for task in tasks:

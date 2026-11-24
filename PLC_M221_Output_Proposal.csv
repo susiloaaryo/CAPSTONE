@@ -1,0 +1,23 @@
+﻿plc,model,plc_ip,physical_output,PLC_contact_bit,equipment_tag,controller_DI_offset,Controller_ModScan_display_address,meaning_and_caution
+PLC1,TM221CE40R,192.168.250.11,%Q0.0,%M0,GD01_LBS1,88,10089,"ON = CLOSE confirmed and RTU online. OFF can mean OPEN, unknown/transit, or RTU offline; status indication only."
+PLC1,TM221CE40R,192.168.250.11,%Q0.1,%M1,GD01_LBS2,89,10090,"ON = CLOSE confirmed and RTU online. OFF can mean OPEN, unknown/transit, or RTU offline; status indication only."
+PLC1,TM221CE40R,192.168.250.11,%Q0.2,%M2,GD02_LBS1,90,10091,"ON = CLOSE confirmed and RTU online. OFF can mean OPEN, unknown/transit, or RTU offline; status indication only."
+PLC1,TM221CE40R,192.168.250.11,%Q0.3,%M3,GD02_LBS2,91,10092,"ON = CLOSE confirmed and RTU online. OFF can mean OPEN, unknown/transit, or RTU offline; status indication only."
+PLC1,TM221CE40R,192.168.250.11,%Q0.4,%M4,GD03_LBS1,92,10093,"ON = CLOSE confirmed and RTU online. OFF can mean OPEN, unknown/transit, or RTU offline; status indication only."
+PLC1,TM221CE40R,192.168.250.11,%Q0.5,%M5,GD03_LBS2,93,10094,"ON = CLOSE confirmed and RTU online. OFF can mean OPEN, unknown/transit, or RTU offline; status indication only."
+PLC1,TM221CE40R,192.168.250.11,%Q0.6,%M6,GD04_LBS1,94,10095,"ON = CLOSE confirmed and RTU online. OFF can mean OPEN, unknown/transit, or RTU offline; status indication only."
+PLC1,TM221CE40R,192.168.250.11,%Q0.7,%M7,GD04_LBS2,95,10096,"ON = CLOSE confirmed and RTU online. OFF can mean OPEN, unknown/transit, or RTU offline; status indication only."
+PLC1,TM221CE40R,192.168.250.11,%Q0.8,%M8,GD05_LBS1,96,10097,"ON = CLOSE confirmed and RTU online. OFF can mean OPEN, unknown/transit, or RTU offline; status indication only."
+PLC1,TM221CE40R,192.168.250.11,%Q0.9,%M9,GD05_LBS2,97,10098,"ON = CLOSE confirmed and RTU online. OFF can mean OPEN, unknown/transit, or RTU offline; status indication only."
+PLC1,TM221CE40R,192.168.250.11,%Q0.10,%M10,GI_SATU_CB,98,10099,"ON = CLOSE confirmed and RTU online. OFF can mean OPEN, unknown/transit, or RTU offline; status indication only."
+PLC1,TM221CE40R,192.168.250.11,%Q0.11,%M11,GI_DUA_CB,99,10100,"ON = CLOSE confirmed and RTU online. OFF can mean OPEN, unknown/transit, or RTU offline; status indication only."
+PLC1,TM221CE40R,192.168.250.11,%Q0.12,%M12,GD01_HFD1,26,10027,ON = Controller HFD bit is active/true in the current simulator map; status/alarm indication only.
+PLC1,TM221CE40R,192.168.250.11,%Q0.13,%M13,GD01_HFD2,27,10028,ON = Controller HFD bit is active/true in the current simulator map; status/alarm indication only.
+PLC1,TM221CE40R,192.168.250.11,%Q0.14,%M14,GD02_HFD1,28,10029,ON = Controller HFD bit is active/true in the current simulator map; status/alarm indication only.
+PLC1,TM221CE40R,192.168.250.11,%Q0.15,%M15,GD02_HFD2,29,10030,ON = Controller HFD bit is active/true in the current simulator map; status/alarm indication only.
+PLC2,TM221CE16T,192.168.250.12,%Q0.0,%M0,GD03_HFD1,30,10031,ON = Controller HFD bit is active/true in the current simulator map; status/alarm indication only.
+PLC2,TM221CE16T,192.168.250.12,%Q0.1,%M1,GD03_HFD2,31,10032,ON = Controller HFD bit is active/true in the current simulator map; status/alarm indication only.
+PLC2,TM221CE16T,192.168.250.12,%Q0.2,%M2,GD04_HFD1,32,10033,ON = Controller HFD bit is active/true in the current simulator map; status/alarm indication only.
+PLC2,TM221CE16T,192.168.250.12,%Q0.3,%M3,GD04_HFD2,33,10034,ON = Controller HFD bit is active/true in the current simulator map; status/alarm indication only.
+PLC2,TM221CE16T,192.168.250.12,%Q0.4,%M4,GD05_HFD1,34,10035,ON = Controller HFD bit is active/true in the current simulator map; status/alarm indication only.
+PLC2,TM221CE16T,192.168.250.12,%Q0.5,%M5,GD05_HFD2,35,10036,ON = Controller HFD bit is active/true in the current simulator map; status/alarm indication only.

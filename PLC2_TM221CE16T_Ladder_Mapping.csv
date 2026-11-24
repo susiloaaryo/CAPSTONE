@@ -1,0 +1,7 @@
+﻿plc,model,plc_ip,rung,ladder_contact,output_coil,equipment_tag,controller_DI_offset,ModScan_display_address,signal_semantics,output_ON_condition
+PLC2,TM221CE16T,192.168.250.12,0,%M0,%Q0.0,GD03_HFD1,30,10031,HFD status/alarm bit,Controller HFD bit = 1 (active/true in current simulator mapping)
+PLC2,TM221CE16T,192.168.250.12,1,%M1,%Q0.1,GD03_HFD2,31,10032,HFD status/alarm bit,Controller HFD bit = 1 (active/true in current simulator mapping)
+PLC2,TM221CE16T,192.168.250.12,2,%M2,%Q0.2,GD04_HFD1,32,10033,HFD status/alarm bit,Controller HFD bit = 1 (active/true in current simulator mapping)
+PLC2,TM221CE16T,192.168.250.12,3,%M3,%Q0.3,GD04_HFD2,33,10034,HFD status/alarm bit,Controller HFD bit = 1 (active/true in current simulator mapping)
+PLC2,TM221CE16T,192.168.250.12,4,%M4,%Q0.4,GD05_HFD1,34,10035,HFD status/alarm bit,Controller HFD bit = 1 (active/true in current simulator mapping)
+PLC2,TM221CE16T,192.168.250.12,5,%M5,%Q0.5,GD05_HFD2,35,10036,HFD status/alarm bit,Controller HFD bit = 1 (active/true in current simulator mapping)

@@ -1,21 +1,32 @@
 import csv
 import html
+import os
 import time
 from pathlib import Path
 
 import streamlit as st
 from pymodbus.client import ModbusTcpClient
 
+import topologi as T
+
 
 # ============================================================
 # KONFIGURASI
 
-HOST = "127.0.0.1"
-CONTROLLER_PORT = 503
-SYSTEM_BEHAVIOR_PORT = 8027
-SLAVE_ID = 1
+HOST = T.HOST_SIMULATOR           # PC physical Ethernet alias on S1
+CONTROLLER_PORT = T.PORT_SHG      # 502 on 192.168.250.2
+SYSTEM_BEHAVIOR_PORT = T.PORT_TESTBENCH  # 503 on 192.168.250.2
+WEB_PORT = T.PORT_WEB_HMI         # 8501 on 192.168.250.2
+SLAVE_ID = T.SLAVE_RTU
+FLISR_MODE = os.getenv("FLISR_MODE", "N").strip().upper()
+if FLISR_MODE not in {"N", "Y"}:
+    FLISR_MODE = "N"
+HUE_RESET_MAP_ENABLED = T.HUE_RESET_SOURCE_MAP_AVAILABLE
 
-# RTU ports sesuai kontrak
+# These are stable logical IDs retained by the UI, NOT actual TCP ports.
+# Mode N resolves status/commands directly to each simulator. Mode Y resolves
+# the RTU CS image and commands through the HUe CHFLISR server; analog telemetry
+# is still read from simulator IR because no analog points are mapped in CoreDb.
 RTU_PORTS = {
     "GI SATU": 8020,
     "GD01": 8021,
@@ -25,6 +36,25 @@ RTU_PORTS = {
     "GD05": 8025,
     "GI DUA": 8026,
 }
+
+
+def resolve_modbus_endpoint(logical_port, simulator=False):
+    """Resolve a logical RTU ID to the active status/command endpoint.
+
+    simulator=True bypasses the HUe gateway and is reserved for simulator-only
+    controls (selector HRs and analog test telemetry).
+    """
+    if logical_port in T.RTU_ID_TO_NODE:
+        if FLISR_MODE == "Y" and not simulator:
+            return T.HOST_HUE_MODBUS, T.PORT_HUE_MODBUS
+        return T.endpoint_logical_id(logical_port)
+    return HOST, int(logical_port)
+
+
+def resolve_modbus_unit_id(logical_port, simulator=False):
+    if logical_port in T.RTU_ID_TO_NODE and FLISR_MODE == "Y" and not simulator:
+        return T.hue_unit_id(T.RTU_ID_TO_NODE[logical_port])
+    return SLAVE_ID
 
 # Controller DI
 DI_SHG_ACTIVE = 0
@@ -36,6 +66,11 @@ DI_CONFIG_NORMAL = 12
 DI_LOCKOUT = 13
 # 14..25 = 12 switch positions in Controller DI
 DI_SWITCH_BASE = 14
+CONTROLLER_DI_COUNT = 88
+
+# Controller selector feedback: 12 local bits followed by 12 remote bits.
+DI_LR_LOCAL_BASE = 64
+DI_LR_REMOTE_BASE = 76
 
 # Controller CO
 CO_SHG_ENABLE = 0
@@ -49,10 +84,13 @@ IR_PADAM = 3
 IR_EVENT = 4
 IR_RTU_ONLINE = 5
 
-# System Behavior 8027 HR
+# System Behavior 503 HR
 HR_CASE = 0
 HR_MODE = 1
 HR_REPAIR = 2
+HR_TRIGGER = 3       # increment on every fault-button click
+HR_APPLIED = 4       # sequence number acknowledged by System Behavior
+HR_STATUS = 5        # 0 idle, 1 verified, 2 partial, 3 not ready, 4 error
 
 # Controller test/demo HR
 # HR6 = repair + normalize topology
@@ -635,37 +673,39 @@ def safe_int(value, default=0):
         return default
 
 
-def mb_read(port, point_type, address, count):
-    client = ModbusTcpClient(HOST, port=port, timeout=0.8)
+def mb_read(port, point_type, address, count, simulator=False):
+    target_host, target_port = resolve_modbus_endpoint(port, simulator=simulator)
+    target_unit = resolve_modbus_unit_id(port, simulator=simulator)
+    client = ModbusTcpClient(target_host, port=target_port, timeout=1.2)
     if not client.connect():
-        return None, f"Port {port} tidak dapat dihubungi."
+        return None, f"Endpoint {target_host}:{target_port} (ID {port}) tidak dapat dihubungi."
 
     try:
         if point_type == "di":
             response = client.read_discrete_inputs(
-                address, count, slave=SLAVE_ID
+                address, count, slave=target_unit
             )
             values = list(getattr(response, "bits", []) or [])
         elif point_type == "co":
             response = client.read_coils(
-                address, count, slave=SLAVE_ID
+                address, count, slave=target_unit
             )
             values = list(getattr(response, "bits", []) or [])
         elif point_type == "ir":
             response = client.read_input_registers(
-                address, count, slave=SLAVE_ID
+                address, count, slave=target_unit
             )
             values = list(getattr(response, "registers", []) or [])
         elif point_type == "hr":
             response = client.read_holding_registers(
-                address, count, slave=SLAVE_ID
+                address, count, slave=target_unit
             )
             values = list(getattr(response, "registers", []) or [])
         else:
             return None, "Tipe register tidak dikenal."
 
         if response is None or response.isError():
-            return None, f"Modbus error :{port} -> {response}"
+            return None, f"Modbus error {target_host}:{target_port} (ID {port}) -> {response}"
 
         return values, None
     except Exception as exc:
@@ -674,25 +714,27 @@ def mb_read(port, point_type, address, count):
         client.close()
 
 
-def mb_write(port, point_type, address, value):
-    client = ModbusTcpClient(HOST, port=port, timeout=0.8)
+def mb_write(port, point_type, address, value, simulator=False):
+    target_host, target_port = resolve_modbus_endpoint(port, simulator=simulator)
+    target_unit = resolve_modbus_unit_id(port, simulator=simulator)
+    client = ModbusTcpClient(target_host, port=target_port, timeout=1.2)
     if not client.connect():
-        return False, f"Port {port} tidak dapat dihubungi."
+        return False, f"Endpoint {target_host}:{target_port} (ID {port}) tidak dapat dihubungi."
 
     try:
         if point_type == "coil":
             response = client.write_coil(
-                address, bool(value), slave=SLAVE_ID
+                address, bool(value), slave=target_unit
             )
         elif point_type == "hr":
             response = client.write_register(
-                address, int(value), slave=SLAVE_ID
+                address, int(value), slave=target_unit
             )
         else:
             return False, "Jenis write tidak dikenal."
 
         if response is None or response.isError():
-            return False, f"Modbus write gagal :{port} -> {response}"
+            return False, f"Modbus write gagal {target_host}:{target_port} (ID {port}) -> {response}"
 
         return True, None
     except Exception as exc:
@@ -706,7 +748,7 @@ def read_controller():
     if err:
         return None, err
 
-    di, err = mb_read(CONTROLLER_PORT, "di", 0, 16)
+    di, err = mb_read(CONTROLLER_PORT, "di", 0, CONTROLLER_DI_COUNT)
     if err:
         return None, err
 
@@ -722,52 +764,69 @@ def read_controller():
 
 
 def read_rtus():
+    """Read RTU feedback as FC01 CS points; analog IR is simulator telemetry.
+
+    In Mode Y, FC01 feedback is acquired from CHFLISR on the HUe using logical
+    Unit IDs 1..7. In Mode N, the same CS image is read from each simulator IP.
+    IR telemetry is read directly from the simulator because the current HUe
+    CoreDb Analog table does not expose current/voltage points to CHFLISR.
+    """
     result = {}
+    for name, logical_id in RTU_PORTS.items():
+        node = T.RTU_ID_TO_NODE[logical_id]
+        cs_count = T.JUMLAH_DI_GI if T.adalah_gardu_induk(node) else T.JUMLAH_DI_GD
+        cs, cs_error = mb_read(logical_id, "co", 0, cs_count)
+        ir, ir_error = mb_read(logical_id, "ir", 0, 3, simulator=True)
 
-    for name, port in RTU_PORTS.items():
-        if name.startswith("GI"):
-            di, de = mb_read(port, "di", 0, 5)
-            ir, ie = mb_read(port, "ir", 0, 3)
-
-            if de or ie:
-                result[name] = {
-                    "online": False,
-                    "di": [],
-                    "ir": [],
-                    "error": de or ie,
-                }
-            else:
-                result[name] = {
-                    "online": True,
-                    "di": di,
-                    "ir": ir,
-                    "error": None,
-                }
-
+        if cs_error:
+            result[name] = {
+                "online": False, "cs": [], "ir": [],
+                "error": cs_error, "telemetry_error": ir_error,
+            }
         else:
-            di, de = mb_read(port, "di", 0, 10)
-            ir, ie = mb_read(port, "ir", 0, 3)
-
-            if de or ie:
-                result[name] = {
-                    "online": False,
-                    "di": [],
-                    "ir": [],
-                    "error": de or ie,
-                }
-            else:
-                result[name] = {
-                    "online": True,
-                    "di": di,
-                    "ir": ir,
-                    "error": None,
-                }
-
+            result[name] = {
+                "online": True, "cs": cs, "ir": ir or [],
+                "error": None, "telemetry_error": ir_error,
+            }
     return result
 
 
+# Each selector is emulated by a dedicated Holding Register on the RTU.
+# Value 0=LOCAL, 1=REMOTE. These are simulator controls, not physical I/O.
+LR_SWITCHES = [
+    {"key": "gi1_cb", "label": "GI SATU · CB", "rtu": "GI SATU", "port": 8020,
+     "hr": 4, "local_cs": 3, "remote_cs": 4},
+]
+for _gd in range(1, 6):
+    _name = f"GD{_gd:02d}"
+    _port = 8020 + _gd
+    LR_SWITCHES.append({"key": f"gd{_gd:02d}_lbs1", "label": f"{_name} · LBS1", "rtu": _name,
+                        "port": _port, "hr": 5, "local_cs": 3, "remote_cs": 4})
+    LR_SWITCHES.append({"key": f"gd{_gd:02d}_lbs2", "label": f"{_name} · LBS2", "rtu": _name,
+                        "port": _port, "hr": 6, "local_cs": 8, "remote_cs": 9})
+LR_SWITCHES.append({"key": "gi2_cb", "label": "GI DUA · CB", "rtu": "GI DUA", "port": 8026,
+                    "hr": 4, "local_cs": 3, "remote_cs": 4})
+
+
+def selector_state(info, local_index, remote_index):
+    if not info or not info.get("online"):
+        return "OFFLINE"
+    bits = info.get("cs", [])
+    if len(bits) <= max(local_index, remote_index):
+        return "NO FEEDBACK"
+    local_bit = int(bool(bits[local_index]))
+    remote_bit = int(bool(bits[remote_index]))
+    if (local_bit, remote_bit) == (1, 0):
+        return "LOCAL"
+    if (local_bit, remote_bit) == (0, 1):
+        return "REMOTE"
+    if (local_bit, remote_bit) == (0, 0):
+        return "NO FEEDBACK"
+    return "INVALID"
+
+
 def read_behavior():
-    hr, err = mb_read(SYSTEM_BEHAVIOR_PORT, "hr", 0, 3)
+    hr, err = mb_read(SYSTEM_BEHAVIOR_PORT, "hr", 0, 6)
     if err:
         return None, err
 
@@ -775,7 +834,56 @@ def read_behavior():
         "case": safe_int(hr[HR_CASE]) if len(hr) > HR_CASE else 0,
         "mode": safe_int(hr[HR_MODE]) if len(hr) > HR_MODE else 0,
         "repair": safe_int(hr[HR_REPAIR]) if len(hr) > HR_REPAIR else 0,
+        "trigger": safe_int(hr[HR_TRIGGER]) if len(hr) > HR_TRIGGER else 0,
+        "applied": safe_int(hr[HR_APPLIED]) if len(hr) > HR_APPLIED else 0,
+        "status": safe_int(hr[HR_STATUS]) if len(hr) > HR_STATUS else 0,
     }, None
+
+
+def submit_fault_case(case):
+    """Submit a fault case with a sequence handshake; same K can be pressed again."""
+    for addr, value, label in (
+        (HR_MODE, 0, "mode"),
+        (HR_CASE, int(case), "case"),
+    ):
+        ok, msg = mb_write(SYSTEM_BEHAVIOR_PORT, "hr", addr, value)
+        if not ok:
+            return False, f"Gagal mengirim {label}: {msg}"
+
+    seqs, err = mb_read(SYSTEM_BEHAVIOR_PORT, "hr", HR_TRIGGER, 2)
+    if err or not seqs or len(seqs) < 2:
+        return False, f"Gagal membaca trigger/ack Testbench: {err or 'respons tidak lengkap'}"
+    current_trigger, current_applied = map(safe_int, seqs[:2])
+
+    # If a previous request is still being processed, don't overwrite it.
+    wait_deadline = time.monotonic() + 8.0
+    while current_trigger != current_applied and time.monotonic() < wait_deadline:
+        time.sleep(0.1)
+        seqs, err = mb_read(SYSTEM_BEHAVIOR_PORT, "hr", HR_TRIGGER, 2)
+        if not err and seqs and len(seqs) >= 2:
+            current_trigger, current_applied = map(safe_int, seqs[:2])
+    if current_trigger != current_applied:
+        return False, "Testbench masih memproses fault sebelumnya. Tunggu selesai sebelum menekan kasus baru."
+
+    sequence = 1 if current_trigger >= 65535 else current_trigger + 1
+    ok, msg = mb_write(SYSTEM_BEHAVIOR_PORT, "hr", HR_TRIGGER, sequence)
+    if not ok:
+        return False, f"Gagal mengirim trigger fault case: {msg}"
+
+    deadline = time.monotonic() + 10.0
+    while time.monotonic() < deadline:
+        result, err = mb_read(SYSTEM_BEHAVIOR_PORT, "hr", HR_APPLIED, 2)
+        if not err and result and len(result) >= 2 and safe_int(result[0]) == sequence:
+            status = safe_int(result[1])
+            if status == 1:
+                return True, f"K{case}: pola RTU berhasil diterapkan dan diverifikasi sebelum Controller melanjutkan."
+            if status == 2:
+                return False, f"K{case}: pola HFD tidak cocok pada readback. Lihat log System Behavior untuk RTU yang gagal."
+            if status == 3:
+                return False, "Fault ditolak: Controller harus dalam fase SIAGA dan tidak sedang menangani gangguan. Gunakan RESET SISTEM, aktifkan SHG, lalu tunggu SIAGA."
+            return False, "System Behavior gagal menyiapkan fault. Periksa koneksi tujuh RTU dan log System Behavior."
+        time.sleep(0.1)
+    return False, f"Timeout menunggu acknowledgement dari System Behavior untuk K{case}. Periksa log Testbench."
 
 
 # ============================================================
@@ -799,50 +907,125 @@ def dp_status(bits, open_index, close_index):
 
 
 def gd_status(info):
-    di = info.get("di", [])
-    lbs1_name, lbs1_closed, lbs1_valid = dp_status(di, 0, 1)
-    lbs2_name, lbs2_closed, lbs2_valid = dp_status(di, 4, 5)
+    cs = info.get("cs", [])
+    lbs1_name, lbs1_closed, lbs1_valid = dp_status(cs, 2, 1)
+    lbs2_name, lbs2_closed, lbs2_valid = dp_status(cs, 7, 6)
 
-    hfd = bool(di[2]) or bool(di[6]) if len(di) >= 7 else False
-    uv = bool(di[8]) if len(di) > 8 else False
-    ov = bool(di[9]) if len(di) > 9 else False
+    hfd1 = bool(cs[0]) if len(cs) > 0 else False
+    hfd2 = bool(cs[5]) if len(cs) > 5 else False
+    hfd = hfd1 or hfd2
     current = safe_int(info["ir"][0]) if len(info.get("ir", [])) > 0 else 0
     voltage = safe_int(info["ir"][2]) if len(info.get("ir", [])) > 2 else 0
+    uv = 0 < voltage < 18_000
+    ov = voltage > 22_000
 
     return {
-        "lbs1": lbs1_name,
-        "lbs1_closed": lbs1_closed,
-        "lbs1_valid": lbs1_valid,
-        "lbs2": lbs2_name,
-        "lbs2_closed": lbs2_closed,
-        "lbs2_valid": lbs2_valid,
-        "hfd": hfd,
-        "uv": uv,
-        "ov": ov,
-        "current": current,
-        "voltage": voltage,
+        "lbs1": lbs1_name, "lbs1_closed": lbs1_closed, "lbs1_valid": lbs1_valid,
+        "lbs2": lbs2_name, "lbs2_closed": lbs2_closed, "lbs2_valid": lbs2_valid,
+        "hfd1": hfd1, "hfd2": hfd2, "hfd": hfd, "uv": uv, "ov": ov,
+        "current": current, "voltage": voltage,
     }
 
 
 def gi_status(info):
-    di = info.get("di", [])
-    cb_name, cb_closed, cb_valid = dp_status(di, 0, 1)
-    trip = bool(di[2]) if len(di) > 2 else False
-    uv = bool(di[3]) if len(di) > 3 else False
-    ov = bool(di[4]) if len(di) > 4 else False
+    cs = info.get("cs", [])
+    cb_name, cb_closed, cb_valid = dp_status(cs, 2, 1)
+    trip = bool(cs[0]) if len(cs) > 0 else False
     current = safe_int(info["ir"][0]) if len(info.get("ir", [])) > 0 else 0
     voltage = safe_int(info["ir"][2]) if len(info.get("ir", [])) > 2 else 0
+    uv = (bool(cs[5]) if len(cs) > 5 else False) or (0 < voltage < 18_000)
+    ov = voltage > 22_000
 
     return {
-        "cb": cb_name,
-        "cb_closed": cb_closed,
-        "cb_valid": cb_valid,
-        "trip": trip,
-        "uv": uv,
-        "ov": ov,
-        "current": current,
-        "voltage": voltage,
+        "cb": cb_name, "cb_closed": cb_closed, "cb_valid": cb_valid,
+        "trip": trip, "uv": uv, "ov": ov,
+        "current": current, "voltage": voltage,
     }
+
+
+def _wait_rtu_switch_feedback(logical_port, bay, closed, timeout=None):
+    """Confirm position from the active CS feedback endpoint after a command."""
+    node = T.RTU_ID_TO_NODE[logical_port]
+    count = T.JUMLAH_DI_GI if T.adalah_gardu_induk(node) else T.JUMLAH_DI_GD
+    if timeout is None:
+        timeout = T.HUE_FEEDBACK_TIMEOUT_SECONDS if FLISR_MODE == "Y" else 2.0
+    if T.adalah_gardu_induk(node):
+        open_idx, close_idx = T.DI_CB_BUKA, T.DI_CB_TUTUP
+    elif bay == 0:
+        open_idx, close_idx = T.DI_GD_LBS1_OPEN, T.DI_GD_LBS1_CLOSE
+    else:
+        open_idx, close_idx = T.DI_GD_LBS2_OPEN, T.DI_GD_LBS2_CLOSE
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        bits, error = mb_read(logical_port, "co", 0, count)
+        if not error and bits and len(bits) > max(open_idx, close_idx):
+            if bool(bits[close_idx]) == bool(closed) and bool(bits[open_idx]) == (not bool(closed)):
+                return True, None
+        time.sleep(0.10)
+    action = "CLOSE" if closed else "OPEN"
+    return False, f"Perintah {action} terkirim, tetapi feedback CS belum mengonfirmasi posisi target."
+
+
+def send_manual_switch(logical_port, bay, closed):
+    """Send a mode-aware manual switching command with readback verification."""
+    node = T.RTU_ID_TO_NODE[logical_port]
+    action = "CLOSE" if closed else "OPEN"
+    if FLISR_MODE == "Y":
+        address = T.hue_switch_command_address(node, bay, bool(closed))
+        ok, error = mb_write(logical_port, "coil", address, True)
+        if not ok:
+            return False, f"Gagal mengirim {action} melalui HUe: {error}"
+        time.sleep(T.HUE_CMD_PULSE_SECONDS)
+        clear_ok, clear_error = mb_write(logical_port, "coil", address, False)
+        if not clear_ok:
+            # Best-effort clear so a transient response error does not leave
+            # a command-source coil asserted indefinitely.
+            mb_write(logical_port, "coil", address, False)
+            return False, f"Perintah {action} terkirim tetapi pulse CHFLISR gagal dilepas: {clear_error}"
+    else:
+        address = T.CO_PERINTAH + bay
+        ok, error = mb_write(logical_port, "coil", address, bool(closed), simulator=True)
+        if not ok:
+            return False, f"Gagal mengirim {action} ke simulator: {error}"
+    verified, verify_error = _wait_rtu_switch_feedback(logical_port, bay, bool(closed))
+    if not verified:
+        return False, verify_error
+    return True, f"{action} terkonfirmasi dari feedback FC01."
+
+
+def send_protection_reset(logical_port):
+    """Reset GI trip or both GD HFD latches using the selected communication path."""
+    node = T.RTU_ID_TO_NODE[logical_port]
+    if FLISR_MODE == "N":
+        ok, error = mb_write(logical_port, "coil", T.CO_RESET, True, simulator=True)
+        if not ok:
+            return False, f"Reset simulator gagal: {error}"
+    else:
+        if not HUE_RESET_MAP_ENABLED:
+            return False, (
+                "Reset HUe masih dikunci. Kirim NEWEST_FLISR_Reset_Mapped.ebc "
+                "ke HUe, verifikasi source CS6/CS10/CS11, lalu aktifkan "
+                "FLISR_HUE_RESET_MAP=1 saat startup."
+            )
+        for address in T.hue_reset_source_addresses(node):
+            ok, error = mb_write(logical_port, "coil", address, True)
+            if not ok:
+                return False, f"Reset melalui HUe gagal pada CS:{address}: {error}"
+            time.sleep(T.HUE_CMD_PULSE_SECONDS)
+            cleared, clear_error = mb_write(logical_port, "coil", address, False)
+            if not cleared:
+                mb_write(logical_port, "coil", address, False)
+                return False, f"Reset terkirim tetapi pulse CS:{address} gagal dilepas: {clear_error}"
+
+    count = T.JUMLAH_DI_GI if T.adalah_gardu_induk(node) else T.JUMLAH_DI_GD
+    reset_indices = [T.DI_CB_TRIP] if T.adalah_gardu_induk(node) else [T.DI_GD_LBS1_HFD, T.DI_GD_LBS2_HFD]
+    deadline = time.monotonic() + T.HUE_FEEDBACK_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        bits, error = mb_read(logical_port, "co", 0, count)
+        if not error and all(index < len(bits) and not bool(bits[index]) for index in reset_indices):
+            return True, "Reset terkonfirmasi: feedback trip/HFD sudah CLEAR."
+        time.sleep(0.10)
+    return False, "Reset terkirim tetapi feedback trip/HFD belum CLEAR. Periksa latch RTU dan pemetaan CoreDb."
 
 
 # ============================================================
@@ -1272,13 +1455,66 @@ st.markdown(
 # LOAD DATA
 # ==============================================================
 
+st.caption(
+    f"Mode komunikasi HMI: {'Y — melalui Saitel HUe (CHFLISR)' if FLISR_MODE == 'Y' else 'N — langsung ke simulator RTU'} · "
+    + ("Reset HUe aktif (pemetaan sudah diaktifkan)." if FLISR_MODE == "Y" and HUE_RESET_MAP_ENABLED else
+       "Reset HUe terkunci sampai EBC reset-mapped dikirim dan diverifikasi." if FLISR_MODE == "Y" else
+       "Status RTU menggunakan FC01; selector merupakan kontrol simulasi.")
+)
+
 controller, controller_err = read_controller()
 if controller_err:
     st.error(f"Controller: {controller_err}")
     st.stop()
 
 rtus = read_rtus()
+lr_states = {
+    item["key"]: selector_state(
+        rtus.get(item["rtu"]), item["local_cs"], item["remote_cs"]
+    )
+    for item in LR_SWITCHES
+}
+lr_remote_count = sum(state == "REMOTE" for state in lr_states.values())
+lr_all_remote = lr_remote_count == len(LR_SWITCHES)
 behavior, behavior_err = read_behavior()
+
+
+# ============================================================
+# SIDEBAR STATUS HELPERS
+# ============================================================
+
+def sidebar_status_row(label, value, detail=""):
+    """Compact live-status item for the sidebar monitoring menu."""
+    normalized = str(value).upper()
+    if any(word in normalized for word in ("ACTIVE", "TRIP", "INVALID")):
+        color = "#ef4444"
+    elif any(word in normalized for word in ("OFFLINE", "NO FEEDBACK")):
+        color = "#94a3b8"
+    elif any(word in normalized for word in ("LOCAL", "OPEN", "TRANSIT", "UNKNOWN")):
+        color = "#f59e0b"
+    elif any(word in normalized for word in ("REMOTE", "CLOSE", "CLEAR", "NORMAL", "NO ALARM", "OK")):
+        color = "#10b981"
+    else:
+        color = "#60a5fa"
+
+    detail_html = (
+        f'<div style="font-size:10px;color:var(--muted);margin-top:2px">{html.escape(str(detail))}</div>'
+        if detail else ""
+    )
+    html_block = (
+        f'<div style="display:flex;align-items:flex-start;gap:8px;padding:7px 8px;margin:4px 0;'
+        f'border:1px solid var(--border);border-radius:8px;background:var(--card);">'
+        f'<span style="width:8px;height:8px;min-width:8px;border-radius:50%;background:{color};margin-top:4px;"></span>'
+        f'<div style="min-width:0;flex:1;line-height:1.25;">'
+        f'<div style="font-size:11px;font-weight:750;color:var(--text);">{html.escape(str(label))}</div>'
+        f'<div style="font-size:11px;color:var(--text);margin-top:2px;overflow-wrap:anywhere;">{html.escape(str(value))}</div>'
+        f'{detail_html}</div></div>'
+    )
+    st.markdown(html_block, unsafe_allow_html=True)
+
+
+def state_alarm(active):
+    return "ACTIVE" if bool(active) else "CLEAR"
 
 
 # ============================================================
@@ -1299,13 +1535,20 @@ with st.sidebar:
     st.markdown(
         f"**SHG:** {'🟢 ENABLED' if shg_enabled else '⚪ DISABLED'}"
     )
+    if lr_all_remote:
+        st.success(f"Selector REMOTE: {lr_remote_count}/{len(LR_SWITCHES)} — interlock L/R terpenuhi.")
+    else:
+        st.warning(
+            f"Selector REMOTE: {lr_remote_count}/{len(LR_SWITCHES)}. "
+            "FLISR tidak akan SIAGA sampai semua CB/LBS REMOTE."
+        )
 
     c1, c2 = st.columns(2)
     with c1:
         if st.button(
             "ENABLE",
             width="stretch",
-            disabled=shg_enabled,
+            disabled=(shg_enabled or not lr_all_remote),
         ):
             ok, msg = mb_write(
                 CONTROLLER_PORT, "coil", CO_SHG_ENABLE, 1
@@ -1345,20 +1588,58 @@ with st.sidebar:
 
     st.divider()
 
+    st.markdown("## 🚨 ALARM SUMMARY")
+    _sidebar_hfd = 0
+    _sidebar_uv = 0
+    _sidebar_ov = 0
+    _sidebar_offline = 0
+    for _node_name, _node_info in rtus.items():
+        if not _node_info.get("online"):
+            _sidebar_offline += 1
+            continue
+        if _node_name.startswith("GI"):
+            _alarm = gi_status(_node_info)
+            _sidebar_uv += int(_alarm["uv"])
+            _sidebar_ov += int(_alarm["ov"])
+        else:
+            _alarm = gd_status(_node_info)
+            _bits = _node_info.get("cs", [])
+            _sidebar_hfd += int(bool(_bits[0])) if len(_bits) > 0 else 0
+            _sidebar_hfd += int(bool(_bits[5])) if len(_bits) > 5 else 0
+            _sidebar_uv += int(_alarm["uv"])
+            _sidebar_ov += int(_alarm["ov"])
+    st.caption(f"HFD aktif: {_sidebar_hfd} titik · UV: {_sidebar_uv} gardu · OV: {_sidebar_ov} gardu")
+    if _sidebar_offline:
+        st.warning(f"RTU offline: {_sidebar_offline}/7")
+    elif _sidebar_hfd or _sidebar_uv or _sidebar_ov:
+        st.error("Ada alarm aktif. Buka panel status utama untuk detail.")
+    else:
+        st.success("Tidak ada alarm HFD/UV/OV aktif.")
+
+    st.divider()
+
     st.markdown("## 🧪 FAULT SIMULATOR")
     st.markdown(
         """
         <div class="side-note">
-        Tombol fault menulis ke <b>System Behavior :8027</b>.
-        Controller tidak membaca port 8027.
+        Tombol fault menulis ke <b>System Behavior :503</b>.
+        Controller tidak membaca layanan Testbench port 503.
         </div>
         """,
         unsafe_allow_html=True,
     )
 
     if behavior_err:
-        st.warning("8027 belum terhubung.")
+        st.warning("Testbench port 503 belum terhubung.")
 
+    _fault_notice = st.session_state.pop("fault_case_notice", None)
+    if _fault_notice:
+        if _fault_notice[0]:
+            st.success(_fault_notice[1])
+        else:
+            st.warning(_fault_notice[1])
+
+    st.caption("Setiap kasus sekarang diterapkan sebagai satu transaksi: controller ditahan sementara, latch lama di-clear, pola HFD ditulis dan diverifikasi, lalu controller diaktifkan kembali.")
     fault_cols = st.columns(2)
 
     for i, seg_name in enumerate(SEGMENT_NAMES):
@@ -1369,19 +1650,9 @@ with st.sidebar:
                 key=f"fault_{i+1}",
                 disabled=(behavior_err is not None or not shg_enabled),
             ):
-                ok1, msg1 = mb_write(
-                    SYSTEM_BEHAVIOR_PORT, "hr", HR_MODE, 0
-                )
-                ok2, msg2 = mb_write(
-                    SYSTEM_BEHAVIOR_PORT, "hr", HR_CASE, i + 1
-                )
-                if not ok1:
-                    st.error(msg1)
-                elif not ok2:
-                    st.error(msg2)
-                else:
-                    time.sleep(0.15)
-                    st.rerun()
+                ok, msg = submit_fault_case(i + 1)
+                st.session_state["fault_case_notice"] = (ok, msg)
+                st.rerun()
 
     st.caption("Source fault: CB GI yang fault OPEN → NOP GD03-LBS2 CLOSE → suplai berpindah ke GI sehat.")
 
@@ -1393,15 +1664,9 @@ with st.sidebar:
             width="stretch",
             disabled=(behavior_err is not None or not shg_enabled),
         ):
-            mb_write(SYSTEM_BEHAVIOR_PORT, "hr", HR_MODE, 0)
-            ok, msg = mb_write(
-                SYSTEM_BEHAVIOR_PORT, "hr", HR_CASE, 7
-            )
-            if not ok:
-                st.error(msg)
-            else:
-                time.sleep(0.15)
-                st.rerun()
+            ok, msg = submit_fault_case(7)
+            st.session_state["fault_case_notice"] = (ok, msg)
+            st.rerun()
 
     with s2:
         if st.button(
@@ -1409,15 +1674,9 @@ with st.sidebar:
             width="stretch",
             disabled=(behavior_err is not None or not shg_enabled),
         ):
-            mb_write(SYSTEM_BEHAVIOR_PORT, "hr", HR_MODE, 0)
-            ok, msg = mb_write(
-                SYSTEM_BEHAVIOR_PORT, "hr", HR_CASE, 8
-            )
-            if not ok:
-                st.error(msg)
-            else:
-                time.sleep(0.15)
-                st.rerun()
+            ok, msg = submit_fault_case(8)
+            st.session_state["fault_case_notice"] = (ok, msg)
+            st.rerun()
 
     if st.button(
         "🔄 REPAIR & CONTINUE",
@@ -1477,7 +1736,7 @@ with st.sidebar:
         expected = [1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1]
         deadline = time.time() + 6.0
         while time.time() < deadline:
-            status, err = mb_read(CONTROLLER_PORT, "di", 0, 64)
+            status, err = mb_read(CONTROLLER_PORT, "di", 0, CONTROLLER_DI_COUNT)
             if err is None and len(status) >= DI_SWITCH_BASE + 12:
                 pos = [int(bool(v)) for v in status[DI_SWITCH_BASE:DI_SWITCH_BASE + 12]]
                 normal = bool(status[DI_CONFIG_NORMAL])
@@ -1775,6 +2034,241 @@ st.markdown(build_sld(rtus, controller), unsafe_allow_html=True)
 
 
 # ============================================================
+# EQUIPMENT STATUS & CONTROL — TWO VIEWS
+# ============================================================
+
+st.markdown('<div class="section">🎛️ Equipment Status & Control</div>', unsafe_allow_html=True)
+st.caption(
+    "Pilih CB & LBS Status untuk melihat posisi switch, mengatur selector Local/Remote, "
+    "dan mengirim perintah OPEN/CLOSE melalui HMI. Pilih UV & HFD Status untuk memantau "
+    "alarm proteksi serta melakukan reset HFD/trip yang tersedia."
+)
+
+status_panel = st.segmented_control(
+    "Pilih panel",
+    options=["CB & LBS Status", "UV & HFD Status"],
+    default="CB & LBS Status",
+    key="equipment_status_control_view",
+    label_visibility="collapsed",
+    width="stretch",
+)
+
+if status_panel == "CB & LBS Status":
+    switch_rows = []
+    for item in LR_SWITCHES:
+        info = rtus.get(item["rtu"], {})
+        lr = lr_states[item["key"]]
+        if not info.get("online"):
+            position = "OFFLINE"
+            trip = False
+        elif item["rtu"].startswith("GI"):
+            _sw = gi_status(info)
+            position = _sw["cb"]
+            trip = bool(_sw["trip"])
+        else:
+            _sw = gd_status(info)
+            position = _sw["lbs1"] if item["label"].endswith("LBS1") else _sw["lbs2"]
+            trip = False
+        switch_rows.append({"item": item, "info": info, "lr": lr, "position": position, "trip": trip})
+
+    _closed_count = sum(r["position"] == "CLOSE" for r in switch_rows)
+    _open_count = sum(r["position"] == "OPEN" for r in switch_rows)
+    _switch_uncertain = sum(r["position"] not in ("OPEN", "CLOSE") for r in switch_rows)
+    _local_count = sum(r["lr"] == "LOCAL" for r in switch_rows)
+
+    _mc = st.columns(4)
+    _mc[0].metric("SWITCH CLOSE", _closed_count)
+    _mc[1].metric("SWITCH OPEN", _open_count)
+    _mc[2].metric("LOCAL SELECTOR", _local_count)
+    _mc[3].metric("INVALID / OFFLINE / TRANSIT", _switch_uncertain)
+
+    _manual_shg_enabled = bool(controller["coils"][CO_SHG_ENABLE]) if len(controller.get("coils", [])) > CO_SHG_ENABLE else False
+    if _manual_shg_enabled:
+        st.warning("SHG sedang ENABLED. Perintah manual OPEN/CLOSE dinonaktifkan untuk mencegah konflik dengan urutan otomatis FLISR. Disable SHG dahulu untuk switching manual.")
+    else:
+        st.info("Manual switching hanya diizinkan bila RTU online, selector REMOTE, dan posisi switch valid. Tombol Set LOCAL/REMOTE mengubah HR selector pada simulator (bukan aktuator selector fisik).")
+
+    _head = st.columns([1.65, 0.8, 0.85, 0.8, 0.8, 0.65, 0.65])
+    for _col, _label in zip(_head, ["Equipment", "Position", "Feedback L/R", "Set LOCAL", "Set REMOTE", "OPEN", "CLOSE"]):
+        _col.markdown(f"**{_label}**")
+
+    for _row_data in switch_rows:
+        item = _row_data["item"]
+        info = _row_data["info"]
+        state = _row_data["lr"]
+        position = _row_data["position"]
+        trip = _row_data["trip"]
+        is_online = bool(info.get("online"))
+        is_gi = item["rtu"].startswith("GI")
+        _bay = 0 if (is_gi or item["label"].endswith("LBS1")) else 1
+
+        _row = st.columns([1.65, 0.8, 0.85, 0.8, 0.8, 0.65, 0.65])
+        with _row[0]:
+            st.markdown(f"**{item['label']}**")
+            _sel_host, _sel_tcp_port = resolve_modbus_endpoint(item["port"], simulator=True)
+            st.caption(f"RTU {_sel_host}:{_sel_tcp_port} · selector HR{item['hr']}")
+        with _row[1]:
+            _position_label = f"{position} · TRIP" if (is_gi and trip) else position
+            if position == "CLOSE":
+                st.markdown(f"🟢 **{_position_label}**")
+            elif position == "OPEN":
+                st.markdown(f"🔴 **{_position_label}**")
+            elif position == "TRANSIT":
+                st.markdown(f"🟠 **{_position_label}**")
+            elif position == "OFFLINE":
+                st.markdown(f"⚫ **{_position_label}**")
+            else:
+                st.markdown(f"⚠️ **{html.escape(_position_label)}**")
+        with _row[2]:
+            if state == "REMOTE":
+                st.markdown("🟢 **REMOTE**")
+            elif state == "LOCAL":
+                st.markdown("🟠 **LOCAL**")
+            elif state == "OFFLINE":
+                st.markdown("🔴 **OFFLINE**")
+            else:
+                st.markdown(f"⚠️ **{html.escape(state)}**")
+        with _row[3]:
+            if st.button("LOCAL", key=f"panel_local_{item['key']}", width="stretch", disabled=(not is_online or state == "LOCAL")):
+                _ok, _msg = mb_write(item["port"], "hr", item["hr"], 0, simulator=True)
+                if not _ok:
+                    st.error(f"{item['label']}: {_msg}")
+                else:
+                    time.sleep(0.08)
+                    st.rerun()
+        with _row[4]:
+            if st.button("REMOTE", key=f"panel_remote_{item['key']}", width="stretch", disabled=(not is_online or state == "REMOTE")):
+                _ok, _msg = mb_write(item["port"], "hr", item["hr"], 1, simulator=True)
+                if not _ok:
+                    st.error(f"{item['label']}: {_msg}")
+                else:
+                    time.sleep(0.08)
+                    st.rerun()
+
+        _remote_manual_ok = is_online and state == "REMOTE" and not _manual_shg_enabled and position in ("OPEN", "CLOSE")
+        with _row[5]:
+            if st.button("OPEN", key=f"panel_open_{item['key']}", width="stretch", disabled=(not _remote_manual_ok or position == "OPEN")):
+                _ok, _msg = send_manual_switch(item["port"], _bay, closed=False)
+                if not _ok:
+                    st.error(f"Gagal OPEN {item['label']}: {_msg}")
+                else:
+                    st.success(f"{item['label']}: {_msg}")
+                    st.rerun()
+        with _row[6]:
+            if st.button("CLOSE", key=f"panel_close_{item['key']}", width="stretch", disabled=(not _remote_manual_ok or position == "CLOSE" or trip)):
+                _ok, _msg = send_manual_switch(item["port"], _bay, closed=True)
+                if not _ok:
+                    st.error(f"Gagal CLOSE {item['label']}: {_msg}")
+                else:
+                    st.success(f"{item['label']}: {_msg}")
+                    st.rerun()
+        st.divider()
+
+    if not lr_all_remote:
+        st.warning(
+            f"INTERLOCK FLISR: hanya {lr_remote_count}/{len(LR_SWITCHES)} selector REMOTE. "
+            "FLISR tidak boleh SIAGA sampai seluruh CB/LBS berstatus REMOTE."
+        )
+    else:
+        st.success("Seluruh 12 selector REMOTE — syarat L/R untuk kesiagaan FLISR terpenuhi jika syarat lain juga normal.")
+
+else:
+    # Protection/alarm view: status is read from RTU feedback. HFD/trip reset
+    # are commands; UV/OV clear when the underlying telemetry/fault condition clears.
+    _hfd_count = 0
+    _uv_count = 0
+    _ov_count = 0
+    _trip_count = 0
+    _alarm_rows = []
+    for _name, _info in rtus.items():
+        if not _info.get("online"):
+            _alarm_rows.append({"name": _name, "online": False})
+            continue
+        if _name.startswith("GI"):
+            _g = gi_status(_info)
+            _row = {"name": _name, "online": True, "hfd1": None, "hfd2": None,
+                    "uv": _g["uv"], "ov": _g["ov"], "trip": _g["trip"],
+                    "voltage": _g["voltage"], "current": _g["current"]}
+            _uv_count += int(_g["uv"])
+            _ov_count += int(_g["ov"])
+            _trip_count += int(_g["trip"])
+        else:
+            _g = gd_status(_info)
+            _bits = _info.get("cs", [])
+            _h1 = bool(_bits[0]) if len(_bits) > 0 else False
+            _h2 = bool(_bits[5]) if len(_bits) > 5 else False
+            _row = {"name": _name, "online": True, "hfd1": _h1, "hfd2": _h2,
+                    "uv": _g["uv"], "ov": _g["ov"], "trip": None,
+                    "voltage": _g["voltage"], "current": _g["current"]}
+            _hfd_count += int(_h1) + int(_h2)
+            _uv_count += int(_g["uv"])
+            _ov_count += int(_g["ov"])
+        _alarm_rows.append(_row)
+
+    _am = st.columns(4)
+    _am[0].metric("HFD ACTIVE", f"{_hfd_count} titik")
+    _am[1].metric("UNDER-VOLTAGE", f"{_uv_count} gardu")
+    _am[2].metric("OVER-VOLTAGE", f"{_ov_count} gardu")
+    _am[3].metric("GI TRIP", f"{_trip_count} sumber")
+
+    st.caption("HFD/Trip dapat di-reset dari HMI. Pada Mode Y, tombol reset aktif hanya setelah EBC reset-mapped dikirim ke HUe dan FLISR_HUE_RESET_MAP diaktifkan saat startup. UV/OV mengikuti telemetry simulator dan tidak di-reset paksa.")
+    _ah = st.columns([1.1, 0.65, 0.65, 0.65, 0.65, 0.65, 0.85, 0.9, 0.8])
+    for _col, _label in zip(_ah, ["Equipment", "HFD1", "HFD2", "UV", "OV", "GI Trip", "Voltage (V)", "Current (A)", "Reset"]):
+        _col.markdown(f"**{_label}**")
+
+    for _row in _alarm_rows:
+        _name = _row["name"]
+        _info = rtus.get(_name, {})
+        _online = bool(_row.get("online"))
+        _cols = st.columns([1.1, 0.65, 0.65, 0.65, 0.65, 0.65, 0.85, 0.9, 0.8])
+        _cols[0].markdown(f"**{_name}**")
+        if not _online:
+            for _idx in range(1, 8):
+                _cols[_idx].markdown("—")
+            _cols[8].markdown("🔴 OFFLINE")
+            st.divider()
+            continue
+
+        if _name.startswith("GI"):
+            _cols[1].markdown("—")
+            _cols[2].markdown("—")
+        else:
+            _cols[1].markdown("🔴 ACTIVE" if _row["hfd1"] else "🟢 CLEAR")
+            _cols[2].markdown("🔴 ACTIVE" if _row["hfd2"] else "🟢 CLEAR")
+        _cols[3].markdown("🔴 ACTIVE" if _row["uv"] else "🟢 CLEAR")
+        _cols[4].markdown("🔴 ACTIVE" if _row["ov"] else "🟢 CLEAR")
+        _cols[5].markdown(("🔴 TRIP" if _row["trip"] else "🟢 CLEAR") if _name.startswith("GI") else "—")
+        _cols[6].markdown(f"{_row['voltage']:,}")
+        _cols[7].markdown(f"{_row['current']:,}")
+
+        if _name.startswith("GI"):
+            if _cols[8].button("RESET TRIP", key=f"reset_trip_{_name}", width="stretch",
+                               disabled=(not _row["trip"] or (FLISR_MODE == "Y" and not HUE_RESET_MAP_ENABLED))):
+                _ok, _msg = send_protection_reset(RTU_PORTS[_name])
+                if not _ok:
+                    st.error(f"Reset trip {_name} gagal: {_msg}")
+                else:
+                    st.success(f"Reset trip {_name}: {_msg}")
+                    st.rerun()
+        else:
+            _hfd_any = bool(_row["hfd1"] or _row["hfd2"])
+            if _cols[8].button("RESET HFD", key=f"reset_hfd_{_name}", width="stretch",
+                               disabled=(not _hfd_any or (FLISR_MODE == "Y" and not HUE_RESET_MAP_ENABLED))):
+                _ok, _msg = send_protection_reset(RTU_PORTS[_name])
+                if not _ok:
+                    st.error(f"Reset HFD {_name} gagal: {_msg}")
+                else:
+                    st.success(f"Reset HFD {_name}: {_msg}")
+                    st.rerun()
+        st.divider()
+
+    if _hfd_count or _uv_count or _ov_count or _trip_count:
+        st.warning("Satu atau lebih indikator proteksi sedang aktif. Periksa penyebab gangguan sebelum melakukan reset.")
+    else:
+        st.success("Semua indikator HFD, UV, OV, dan GI trip sedang CLEAR.")
+
+
+# ============================================================
 # NODE HEALTH
 # ============================================================
 
@@ -1785,6 +2279,7 @@ node_cols = st.columns(7)
 for idx, (name, port) in enumerate(RTU_PORTS.items()):
     info = rtus[name]
     online = info["online"]
+    _node_host, _node_tcp_port = resolve_modbus_endpoint(port)
 
     with node_cols[idx]:
         state = "ONLINE" if online else "OFFLINE"
@@ -1796,7 +2291,7 @@ for idx, (name, port) in enumerate(RTU_PORTS.items()):
                 <div class="node-name">
                     {"🟢" if online else "🔴"} {html.escape(name)}
                 </div>
-                <div class="small-muted">127.0.0.1:{port}</div>
+                <div class="small-muted">{_node_host}:{_node_tcp_port}</div>
                 <div class="node-badge {badge_kind}">{state}</div>
             </div>
             """,
@@ -1819,6 +2314,7 @@ for name, info in rtus.items():
                 "Node": name,
                 "Online": "NO",
                 "Status": "OFFLINE",
+                "Selector L/R": "OFFLINE",
                 "Tegangan (V)": 0,
                 "Arus (A)": 0,
             }
@@ -1840,6 +2336,7 @@ for name, info in rtus.items():
                 "Node": name,
                 "Online": "YES",
                 "Status": status,
+                "Selector L/R": f"CB {selector_state(info, 3, 4)}",
                 "Tegangan (V)": s["voltage"],
                 "Arus (A)": s["current"],
             }
@@ -1859,6 +2356,7 @@ for name, info in rtus.items():
                 "Node": name,
                 "Online": "YES",
                 "Status": status,
+                "Selector L/R": f"LBS1 {selector_state(info, 3, 4)} / LBS2 {selector_state(info, 8, 9)}",
                 "Tegangan (V)": s["voltage"],
                 "Arus (A)": s["current"],
             }

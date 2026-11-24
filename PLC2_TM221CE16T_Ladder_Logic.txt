@@ -1,0 +1,20 @@
+PLC2 — TM221CE16T — 7 transistor PNP outputs
+
+HFD status: last six Controller HFD bits DI30..DI35
+
+Rung 00: %M0 ----( %Q0.0 )  GD03_HFD1  [Controller DI30, ModScan 10031]
+Rung 01: %M1 ----( %Q0.1 )  GD03_HFD2  [Controller DI31, ModScan 10032]
+Rung 02: %M2 ----( %Q0.2 )  GD04_HFD1  [Controller DI32, ModScan 10033]
+Rung 03: %M3 ----( %Q0.3 )  GD04_HFD2  [Controller DI33, ModScan 10034]
+Rung 04: %M4 ----( %Q0.4 )  GD05_HFD1  [Controller DI34, ModScan 10035]
+Rung 05: %M5 ----( %Q0.5 )  GD05_HFD2  [Controller DI35, ModScan 10036]
+
+Q0.6 is reserved/spare.
+
+Read contract:
+- Target 192.168.250.2:502, Unit ID 1, FC02.
+- Read HFD range DI30..DI35 (offset 30, quantity 6).
+- Map returned bits into %M0..%M5 in order above.
+- HFD output ON = Controller HFD bit is active/true in the current simulator mapping.
+- These are status/alarm indications, not protection trips or switching commands.
+- TM221CE16T transistor outputs are 24 VDC PNP/source type, rated 0.5 A per output; verify total/common limits and field interface before wiring.

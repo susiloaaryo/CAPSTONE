@@ -1,0 +1,33 @@
+DUAL PLC ladder mapping — status indications only
+
+PLC1: TM221CE40R at 192.168.250.11 — 12 CB/LBS + 4 HFD.
+PLC2: TM221CE16T at 192.168.250.12 — 6 HFD + 1 spare output.
+Both PLCs are Modbus TCP clients reading the same Controller server at 192.168.250.2:502, Unit ID 1.
+
+=== PLC1 TM221CE40R ===
+Rung 00: %M0 ----( %Q0.0 )  GD01_LBS1  [DI88 / ModScan 10089]
+Rung 01: %M1 ----( %Q0.1 )  GD01_LBS2  [DI89 / ModScan 10090]
+Rung 02: %M2 ----( %Q0.2 )  GD02_LBS1  [DI90 / ModScan 10091]
+Rung 03: %M3 ----( %Q0.3 )  GD02_LBS2  [DI91 / ModScan 10092]
+Rung 04: %M4 ----( %Q0.4 )  GD03_LBS1  [DI92 / ModScan 10093]
+Rung 05: %M5 ----( %Q0.5 )  GD03_LBS2  [DI93 / ModScan 10094]
+Rung 06: %M6 ----( %Q0.6 )  GD04_LBS1  [DI94 / ModScan 10095]
+Rung 07: %M7 ----( %Q0.7 )  GD04_LBS2  [DI95 / ModScan 10096]
+Rung 08: %M8 ----( %Q0.8 )  GD05_LBS1  [DI96 / ModScan 10097]
+Rung 09: %M9 ----( %Q0.9 )  GD05_LBS2  [DI97 / ModScan 10098]
+Rung 10: %M10 ----( %Q0.10 )  GI_SATU_CB  [DI98 / ModScan 10099]
+Rung 11: %M11 ----( %Q0.11 )  GI_DUA_CB  [DI99 / ModScan 10100]
+Rung 12: %M12 ----( %Q0.12 )  GD01_HFD1  [DI26 / ModScan 10027]
+Rung 13: %M13 ----( %Q0.13 )  GD01_HFD2  [DI27 / ModScan 10028]
+Rung 14: %M14 ----( %Q0.14 )  GD02_HFD1  [DI28 / ModScan 10029]
+Rung 15: %M15 ----( %Q0.15 )  GD02_HFD2  [DI29 / ModScan 10030]
+
+=== PLC2 TM221CE16T ===
+Rung 00: %M0 ----( %Q0.0 )  GD03_HFD1  [DI30 / ModScan 10031]
+Rung 01: %M1 ----( %Q0.1 )  GD03_HFD2  [DI31 / ModScan 10032]
+Rung 02: %M2 ----( %Q0.2 )  GD04_HFD1  [DI32 / ModScan 10033]
+Rung 03: %M3 ----( %Q0.3 )  GD04_HFD2  [DI33 / ModScan 10034]
+Rung 04: %M4 ----( %Q0.4 )  GD05_HFD1  [DI34 / ModScan 10035]
+Rung 05: %M5 ----( %Q0.5 )  GD05_HFD2  [DI35 / ModScan 10036]
+
+This text is a mapping reference, not a downloadable PLC project. Apply and test the ladder in EcoStruxure Machine Expert - Basic.

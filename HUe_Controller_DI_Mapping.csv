@@ -1,0 +1,101 @@
+﻿zero_based_DI_offset,ModScan_display_address,signal_name,description,group,active_value
+0,10001,SHG_ACTIVE,Self-healing automation active,SHG,1 = active/true unless specified
+1,10002,SHG_IN_PROGRESS,FLISR sequence currently in progress,SHG,1 = active/true unless specified
+2,10003,SHG_INCOMPLETE,FLISR sequence incomplete / needs attention,SHG,1 = active/true unless specified
+3,10004,UNUSED_DI03,Unused controller DI,System,1 = active/true unless specified
+4,10005,GI_A_RTU_ONLINE,GI A / GI SATU RTU responds,Communication,1 = active/true unless specified
+5,10006,GD01_RTU_ONLINE,GD01 RTU responds,Communication,1 = active/true unless specified
+6,10007,GD02_RTU_ONLINE,GD02 RTU responds,Communication,1 = active/true unless specified
+7,10008,GD03_RTU_ONLINE,GD03 RTU responds,Communication,1 = active/true unless specified
+8,10009,GD04_RTU_ONLINE,GD04 RTU responds,Communication,1 = active/true unless specified
+9,10010,GD05_RTU_ONLINE,GD05 RTU responds,Communication,1 = active/true unless specified
+10,10011,GI_B_RTU_ONLINE,GI B / GI DUA RTU responds,Communication,1 = active/true unless specified
+11,10012,ALL_RTU_ONLINE,All seven virtual RTUs respond,Communication,1 = active/true unless specified
+12,10013,CONFIG_NORMAL,Switch topology matches normal configuration,System,1 = active/true unless specified
+13,10014,FLISR_LOCKOUT,Controller lock-out active,System,1 = active/true unless specified
+14,10015,GI_A_CB_CLOSED,"GI A CB: 1=closed, 0=open; check matching validity point",CB/LBS Position,1 = active/true unless specified
+15,10016,GD01_LBS1_CLOSED,"GD01 LBS1: 1=closed, 0=open; check matching validity point",CB/LBS Position,1 = active/true unless specified
+16,10017,GD01_LBS2_CLOSED,"GD01 LBS2: 1=closed, 0=open; check matching validity point",CB/LBS Position,1 = active/true unless specified
+17,10018,GD02_LBS1_CLOSED,"GD02 LBS1: 1=closed, 0=open; check matching validity point",CB/LBS Position,1 = active/true unless specified
+18,10019,GD02_LBS2_CLOSED,"GD02 LBS2: 1=closed, 0=open; check matching validity point",CB/LBS Position,1 = active/true unless specified
+19,10020,GD03_LBS1_CLOSED,"GD03 LBS1: 1=closed, 0=open; check matching validity point",CB/LBS Position,1 = active/true unless specified
+20,10021,GD03_LBS2_CLOSED,"GD03 LBS2: 1=closed, 0=open; check matching validity point",CB/LBS Position,1 = active/true unless specified
+21,10022,GD04_LBS1_CLOSED,"GD04 LBS1: 1=closed, 0=open; check matching validity point",CB/LBS Position,1 = active/true unless specified
+22,10023,GD04_LBS2_CLOSED,"GD04 LBS2: 1=closed, 0=open; check matching validity point",CB/LBS Position,1 = active/true unless specified
+23,10024,GD05_LBS1_CLOSED,"GD05 LBS1: 1=closed, 0=open; check matching validity point",CB/LBS Position,1 = active/true unless specified
+24,10025,GD05_LBS2_CLOSED,"GD05 LBS2: 1=closed, 0=open; check matching validity point",CB/LBS Position,1 = active/true unless specified
+25,10026,GI_B_CB_CLOSED,"GI B CB: 1=closed, 0=open; check matching validity point",CB/LBS Position,1 = active/true unless specified
+26,10027,GD01_HFD1,GD01 bay/LBS1 HFD,HFD,1 = active/true unless specified
+27,10028,GD01_HFD2,GD01 bay/LBS2 HFD,HFD,1 = active/true unless specified
+28,10029,GD02_HFD1,GD02 bay/LBS1 HFD,HFD,1 = active/true unless specified
+29,10030,GD02_HFD2,GD02 bay/LBS2 HFD,HFD,1 = active/true unless specified
+30,10031,GD03_HFD1,GD03 bay/LBS1 HFD,HFD,1 = active/true unless specified
+31,10032,GD03_HFD2,GD03 bay/LBS2 HFD,HFD,1 = active/true unless specified
+32,10033,GD04_HFD1,GD04 bay/LBS1 HFD,HFD,1 = active/true unless specified
+33,10034,GD04_HFD2,GD04 bay/LBS2 HFD,HFD,1 = active/true unless specified
+34,10035,GD05_HFD1,GD05 bay/LBS1 HFD,HFD,1 = active/true unless specified
+35,10036,GD05_HFD2,GD05 bay/LBS2 HFD,HFD,1 = active/true unless specified
+36,10037,GI_A_CB_TRIP,GI A / GI SATU CB trip latch,GI Trip,1 = active/true unless specified
+37,10038,GI_B_CB_TRIP,GI B / GI DUA CB trip latch,GI Trip,1 = active/true unless specified
+38,10039,GI_A_UV,GI A / GI SATU: under-voltage active,UV,1 = active/true unless specified
+39,10040,GD01_UV,GD01: under-voltage active,UV,1 = active/true unless specified
+40,10041,GD02_UV,GD02: under-voltage active,UV,1 = active/true unless specified
+41,10042,GD03_UV,GD03: under-voltage active,UV,1 = active/true unless specified
+42,10043,GD04_UV,GD04: under-voltage active,UV,1 = active/true unless specified
+43,10044,GD05_UV,GD05: under-voltage active,UV,1 = active/true unless specified
+44,10045,GI_B_UV,GI B / GI DUA: under-voltage active,UV,1 = active/true unless specified
+45,10046,GI_A_OV,GI A / GI SATU: over-voltage active,OV,1 = active/true unless specified
+46,10047,GD01_OV,GD01: over-voltage active,OV,1 = active/true unless specified
+47,10048,GD02_OV,GD02: over-voltage active,OV,1 = active/true unless specified
+48,10049,GD03_OV,GD03: over-voltage active,OV,1 = active/true unless specified
+49,10050,GD04_OV,GD04: over-voltage active,OV,1 = active/true unless specified
+50,10051,GD05_OV,GD05: over-voltage active,OV,1 = active/true unless specified
+51,10052,GI_B_OV,GI B / GI DUA: over-voltage active,OV,1 = active/true unless specified
+52,10053,GI_A_CB_POSITION_VALID,GI A CB double-point position is valid,Position Validity,1 = active/true unless specified
+53,10054,GD01_LBS1_POSITION_VALID,GD01 LBS1 double-point position is valid,Position Validity,1 = active/true unless specified
+54,10055,GD01_LBS2_POSITION_VALID,GD01 LBS2 double-point position is valid,Position Validity,1 = active/true unless specified
+55,10056,GD02_LBS1_POSITION_VALID,GD02 LBS1 double-point position is valid,Position Validity,1 = active/true unless specified
+56,10057,GD02_LBS2_POSITION_VALID,GD02 LBS2 double-point position is valid,Position Validity,1 = active/true unless specified
+57,10058,GD03_LBS1_POSITION_VALID,GD03 LBS1 double-point position is valid,Position Validity,1 = active/true unless specified
+58,10059,GD03_LBS2_POSITION_VALID,GD03 LBS2 double-point position is valid,Position Validity,1 = active/true unless specified
+59,10060,GD04_LBS1_POSITION_VALID,GD04 LBS1 double-point position is valid,Position Validity,1 = active/true unless specified
+60,10061,GD04_LBS2_POSITION_VALID,GD04 LBS2 double-point position is valid,Position Validity,1 = active/true unless specified
+61,10062,GD05_LBS1_POSITION_VALID,GD05 LBS1 double-point position is valid,Position Validity,1 = active/true unless specified
+62,10063,GD05_LBS2_POSITION_VALID,GD05 LBS2 double-point position is valid,Position Validity,1 = active/true unless specified
+63,10064,GI_B_CB_POSITION_VALID,GI B CB double-point position is valid,Position Validity,1 = active/true unless specified
+64,10065,GI_A_CB_LR_LOCAL,GI A CB selector Local feedback,Local/Remote,1 = Local
+65,10066,GD01_LBS1_LR_LOCAL,GD01 LBS1 selector Local feedback,Local/Remote,1 = Local
+66,10067,GD01_LBS2_LR_LOCAL,GD01 LBS2 selector Local feedback,Local/Remote,1 = Local
+67,10068,GD02_LBS1_LR_LOCAL,GD02 LBS1 selector Local feedback,Local/Remote,1 = Local
+68,10069,GD02_LBS2_LR_LOCAL,GD02 LBS2 selector Local feedback,Local/Remote,1 = Local
+69,10070,GD03_LBS1_LR_LOCAL,GD03 LBS1 selector Local feedback,Local/Remote,1 = Local
+70,10071,GD03_LBS2_LR_LOCAL,GD03 LBS2 selector Local feedback,Local/Remote,1 = Local
+71,10072,GD04_LBS1_LR_LOCAL,GD04 LBS1 selector Local feedback,Local/Remote,1 = Local
+72,10073,GD04_LBS2_LR_LOCAL,GD04 LBS2 selector Local feedback,Local/Remote,1 = Local
+73,10074,GD05_LBS1_LR_LOCAL,GD05 LBS1 selector Local feedback,Local/Remote,1 = Local
+74,10075,GD05_LBS2_LR_LOCAL,GD05 LBS2 selector Local feedback,Local/Remote,1 = Local
+75,10076,GI_B_CB_LR_LOCAL,GI B CB selector Local feedback,Local/Remote,1 = Local
+76,10077,GI_A_CB_LR_REMOTE,GI A CB selector Remote feedback,Local/Remote,1 = Remote
+77,10078,GD01_LBS1_LR_REMOTE,GD01 LBS1 selector Remote feedback,Local/Remote,1 = Remote
+78,10079,GD01_LBS2_LR_REMOTE,GD01 LBS2 selector Remote feedback,Local/Remote,1 = Remote
+79,10080,GD02_LBS1_LR_REMOTE,GD02 LBS1 selector Remote feedback,Local/Remote,1 = Remote
+80,10081,GD02_LBS2_LR_REMOTE,GD02 LBS2 selector Remote feedback,Local/Remote,1 = Remote
+81,10082,GD03_LBS1_LR_REMOTE,GD03 LBS1 selector Remote feedback,Local/Remote,1 = Remote
+82,10083,GD03_LBS2_LR_REMOTE,GD03 LBS2 selector Remote feedback,Local/Remote,1 = Remote
+83,10084,GD04_LBS1_LR_REMOTE,GD04 LBS1 selector Remote feedback,Local/Remote,1 = Remote
+84,10085,GD04_LBS2_LR_REMOTE,GD04 LBS2 selector Remote feedback,Local/Remote,1 = Remote
+85,10086,GD05_LBS1_LR_REMOTE,GD05 LBS1 selector Remote feedback,Local/Remote,1 = Remote
+86,10087,GD05_LBS2_LR_REMOTE,GD05 LBS2 selector Remote feedback,Local/Remote,1 = Remote
+87,10088,GI_B_CB_LR_REMOTE,GI B CB selector Remote feedback,Local/Remote,1 = Remote
+88,10089,GD01_LBS1_CLOSED_PLC_ALIAS,PLC output-order alias for GD01 LBS1; only confirmed closed while RTU online,PLC Switch Alias,1 = closed confirmed and RTU online; 0 = open OR unconfirmed/offline
+89,10090,GD01_LBS2_CLOSED_PLC_ALIAS,PLC output-order alias for GD01 LBS2; only confirmed closed while RTU online,PLC Switch Alias,1 = closed confirmed and RTU online; 0 = open OR unconfirmed/offline
+90,10091,GD02_LBS1_CLOSED_PLC_ALIAS,PLC output-order alias for GD02 LBS1; only confirmed closed while RTU online,PLC Switch Alias,1 = closed confirmed and RTU online; 0 = open OR unconfirmed/offline
+91,10092,GD02_LBS2_CLOSED_PLC_ALIAS,PLC output-order alias for GD02 LBS2; only confirmed closed while RTU online,PLC Switch Alias,1 = closed confirmed and RTU online; 0 = open OR unconfirmed/offline
+92,10093,GD03_LBS1_CLOSED_PLC_ALIAS,PLC output-order alias for GD03 LBS1; only confirmed closed while RTU online,PLC Switch Alias,1 = closed confirmed and RTU online; 0 = open OR unconfirmed/offline
+93,10094,GD03_LBS2_CLOSED_PLC_ALIAS,PLC output-order alias for GD03 LBS2; only confirmed closed while RTU online,PLC Switch Alias,1 = closed confirmed and RTU online; 0 = open OR unconfirmed/offline
+94,10095,GD04_LBS1_CLOSED_PLC_ALIAS,PLC output-order alias for GD04 LBS1; only confirmed closed while RTU online,PLC Switch Alias,1 = closed confirmed and RTU online; 0 = open OR unconfirmed/offline
+95,10096,GD04_LBS2_CLOSED_PLC_ALIAS,PLC output-order alias for GD04 LBS2; only confirmed closed while RTU online,PLC Switch Alias,1 = closed confirmed and RTU online; 0 = open OR unconfirmed/offline
+96,10097,GD05_LBS1_CLOSED_PLC_ALIAS,PLC output-order alias for GD05 LBS1; only confirmed closed while RTU online,PLC Switch Alias,1 = closed confirmed and RTU online; 0 = open OR unconfirmed/offline
+97,10098,GD05_LBS2_CLOSED_PLC_ALIAS,PLC output-order alias for GD05 LBS2; only confirmed closed while RTU online,PLC Switch Alias,1 = closed confirmed and RTU online; 0 = open OR unconfirmed/offline
+98,10099,GI_A_CB_CLOSED_PLC_ALIAS,PLC output-order alias for GI SATU CB; only confirmed closed while RTU online,PLC Switch Alias,1 = closed confirmed and RTU online; 0 = open OR unconfirmed/offline
+99,10100,GI_B_CB_CLOSED_PLC_ALIAS,PLC output-order alias for GI DUA CB; only confirmed closed while RTU online,PLC Switch Alias,1 = closed confirmed and RTU online; 0 = open OR unconfirmed/offline

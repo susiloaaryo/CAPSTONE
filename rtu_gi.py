@@ -1,21 +1,26 @@
 """RTU Gardu Induk (GI) - final FLISR simulator.
 
-Ports:
-    GI1 -> 8020
-    GI2 -> 8026
+Endpoints (Modbus TCP 502):
+    GI1 / GI SATU -> 192.168.250.3
+    GI2 / GI DUA  -> 192.168.250.4
 
 Contract:
     Slave ID = 1, zero_mode=True
-    DI0/DI1 = CB double point
-    DI2 = CB trip
-    DI3 = Under Voltage
-    DI4 = Over Voltage
-    CO0 = CB command
-    CO2 = reset trip
-    HR0 = forced trip
-    HR1 = forced UV
-    HR2 = forced current
-    HR3 = forced voltage
+    FC01 CO0..5 mirrors EBC CoreDb CS0..5:
+      CBTR, CB CLOSE, CB OPEN, LR LOCAL, LR REMOTE, UV
+    CO10=CB level command; CO12=reset trip
+    EBC FC05 writes at CS1/CS2 are momentary CLOSE/OPEN. The supplied CoreDb
+    has no SOURCE_COORD for GI trip reset; FC05 destination CS0 is intercepted
+    only if a reset mapping is later added in Easergy Builder.
+    HR0=forced trip; HR1=forced UV; HR2=forced current; HR3=forced voltage
+    HR4=CB selector (0=LOCAL, 1=REMOTE; defaults REMOTE)
+
+Multi-master / multi-client behavior:
+    One shared datastore is served by a single Modbus TCP server on this RTU IP.
+    Multiple TCP clients may connect concurrently. Unit ID 1 is retained for
+    direct mode/testbench; the additional EBC Mdbm Unit ID comes from topologi.py.
+    In mode Y, EBC FC05 command writes are translated into events without
+    overwriting the FC01 status image.
 
 Simulator-only coordination:
     fault_state.json is used only to pause/resume CSV progression on
@@ -39,6 +44,9 @@ from pymodbus.datastore import (
 )
 from pymodbus.server import StartAsyncTcpServer
 
+import topologi as T
+from rtu_command_datablock import EBCCommandCoilDataBlock
+
 
 BASE_DIR = Path(__file__).resolve().parent
 CSV_FILE = BASE_DIR / "dummydata1.csv"
@@ -51,18 +59,22 @@ UV_THRESHOLD_V = 18_000.0
 OV_THRESHOLD_V = 22_000.0
 
 CO = 1
-DI = 2
+# FC01 status image in CO0..CO5; command coils are kept separate.
+CO_STATUS = 1
 HR = 3
 IR = 4
 
-DI_CB_OPEN = 0
-DI_CB_CLOSE = 1
-DI_CB_TRIP = 2
-DI_UV = 3
-DI_OV = 4
+# FC01 image aligned with EBC M1_GIA / M7_GIB and S1_GIA / S7_GIB CS:0..5.
+CO_CB_TRIP = 0
+CO_CB_CLOSE = 1
+CO_CB_OPEN = 2
+CO_CB_LOCAL = 3
+CO_CB_REMOTE = 4
+CO_UV = 5
 
-CO_CB_COMMAND = 0
-CO_RESET_TRIP = 2
+CO_CB_COMMAND = 10
+CO_RESET_TRIP = 12
+HR_SELECTOR_CB = 4  # 0=LOCAL, 1=REMOTE
 
 IR_CURRENT = 0
 IR_VOLTAGE = 2
@@ -97,7 +109,8 @@ class GISimulator:
     def __init__(self, gi_number):
         self.gi_number = int(gi_number)
         self.name = f"GI0{self.gi_number}"
-        self.port = 8020 if self.gi_number == 1 else 8026
+        self.node_index = T.GI_KIRI if self.gi_number == 1 else T.GI_KANAN
+        self.port = T.port_node(self.node_index)
 
         if not CSV_FILE.exists():
             raise FileNotFoundError(f"CSV tidak ditemukan: {CSV_FILE}")
@@ -127,20 +140,36 @@ class GISimulator:
         self.transition_target = None
         self.transition_end = 0.0
 
+        ebc_command_map = {
+            0: ("reset_trip", 0),
+            1: ("switch", 0, True),
+            2: ("switch", 0, False),
+        }
+        self.coil_block = EBCCommandCoilDataBlock(
+            0, [0, 1, 0, 0, 1, 0] + [0] * 4 + [1, 0, 0],
+            ebc_command_map,
+        )
         self.store = ModbusSlaveContext(
-            co=ModbusSequentialDataBlock(0, [1, 0, 0] + [0] * 5),
-            di=ModbusSequentialDataBlock(0, [0, 1, 0, 0, 0]),
-            hr=ModbusSequentialDataBlock(0, [0, 0, 0, 0]),
+            co=self.coil_block,
+            di=ModbusSequentialDataBlock(0, [0, 1, 0, 0, 1, 0]),
+            # HR0..HR3 injection; HR4=CB selector (0=LOCAL, 1=REMOTE).
+            hr=ModbusSequentialDataBlock(0, [0, 0, 0, 0, 1]),
             ir=ModbusSequentialDataBlock(0, [0, 0, 0, 0]),
             zero_mode=True,
         )
 
+        downstream_unit_id = T.mdbm_unit_id(self.node_index)
+        slave_contexts = {
+            unit_id: self.store
+            for unit_id in sorted({SLAVE_ID, downstream_unit_id})
+        }
         self.context = ModbusServerContext(
-            slaves={SLAVE_ID: self.store},
+            slaves=slave_contexts,
             single=False,
         )
 
         self._publish_cb(False)
+        self._publish_selector_status()
         self._publish_measurement(0.0, V_NOMINAL, 0, 0)
 
     def global_pause(self):
@@ -166,6 +195,12 @@ class GISimulator:
     def csv_paused(self):
         return self.global_pause()
 
+    def _publish_selector_status(self):
+        """Publish selector feedback; invalid HR values publish neither bit."""
+        mode = int(self.store.getValues(HR, HR_SELECTOR_CB, count=1)[0])
+        self.coil_block.set_internal(CO_CB_LOCAL, [int(mode == 0)])
+        self.coil_block.set_internal(CO_CB_REMOTE, [int(mode == 1)])
+
     def _publish_cb(self, transit=False):
         if transit:
             bits = [0, 0]
@@ -173,7 +208,9 @@ class GISimulator:
             bits = [0, 1]  # CLOSED = 01
         else:
             bits = [1, 0]  # OPEN = 10
-        self.store.setValues(DI, 0, bits)
+        self.coil_block.set_internal(CO_CB_CLOSE, [bits[1]])
+        self.coil_block.set_internal(CO_CB_OPEN, [bits[0]])
+        self.coil_block.set_internal(CO_CB_TRIP, [int(self.trip_latched)])
 
     def _publish_measurement(self, current, voltage, uv, ov):
         self.store.setValues(
@@ -184,8 +221,7 @@ class GISimulator:
             IR, IR_VOLTAGE,
             [int(max(0, min(65535, round(voltage))))],
         )
-        self.store.setValues(DI, DI_UV, [int(uv)])
-        self.store.setValues(DI, DI_OV, [int(ov)])
+        self.coil_block.set_internal(CO_UV, [int(uv)])
 
     async def csv_loop(self):
         logging.info("CSV cocok untuk %s: %d baris", self.name, len(self.df))
@@ -254,6 +290,11 @@ class GISimulator:
                         self.name,
                     )
 
+                if active:
+                    # Publish injected protection telemetry for BOTH trip and
+                    # UV cases. Previously a UV-only case (HR1=1, HR0=0) did
+                    # UV is published directly at EBC CS:5
+                    # rising-edge branch.
                     voltage = (
                         forced_voltage
                         if forced_voltage is not None
@@ -266,11 +307,7 @@ class GISimulator:
                     )
                     uv = int(force_uv)
                     ov = int(voltage > OV_THRESHOLD_V)
-
-                    self._publish_measurement(
-                        current, voltage, uv, ov
-                    )
-
+                    self._publish_measurement(current, voltage, uv, ov)
                 elif last_active:
                     # Clear forced indication immediately; CSV resumes
                     # separately from the frozen index.
@@ -291,11 +328,48 @@ class GISimulator:
     async def control_loop(self):
         try:
             while True:
-                coils = self.store.getValues(CO, 0, count=3)
-                command = int(coils[CO_CB_COMMAND])
-                reset = int(coils[CO_RESET_TRIP])
+                coils = self.store.getValues(CO, 10, count=3)
+                command = int(coils[0])
+                reset = int(coils[2])
+                selector_mode = int(self.store.getValues(HR, HR_SELECTOR_CB, count=1)[0])
+                self._publish_selector_status()
 
                 now = time.monotonic()
+                for event in self.coil_block.pop_events():
+                    if event[0] == "reset_trip":
+                        self.trip_latched = False
+                        logging.info("[%s] EBC reset trip diterima (FC05 CS:0).", self.name)
+                        if (
+                            selector_mode == 1
+                            and command == 1
+                            and not self.cb_closed
+                            and self.transition_target is None
+                        ):
+                            self.command_cb = 1
+                            self.last_command_cb = 1
+                            self.transition_target = 1
+                            self.transition_end = now + TRANSIT_S
+                            self._publish_cb(True)
+                    elif event[0] == "switch":
+                        _, _bay, target = event
+                        target = int(bool(target))
+                        if selector_mode == 1 and self.transition_target is None:
+                            self.last_command_cb = target
+                            self.command_cb = target
+                            self.coil_block.set_internal(10, [target])
+                            if int(self.cb_closed) != target:
+                                self.transition_target = target
+                                self.transition_end = now + TRANSIT_S
+                                self._publish_cb(True)
+                            logging.info(
+                                "[%s] EBC CB command -> %s",
+                                self.name, "CLOSE" if target else "OPEN",
+                            )
+                        else:
+                            logging.warning(
+                                "[%s] EBC CB command ditolak: selector bukan REMOTE atau CB sedang transit",
+                                self.name,
+                            )
 
                 if reset:
                     # Reset hanya melepas latch trip. Bila command CB masih
@@ -304,12 +378,11 @@ class GISimulator:
                     # internal tanpa mengubah CO0 dari 1 -> 0, sehingga command
                     # CLOSE berikutnya tidak menghasilkan rising/change edge.
                     self.trip_latched = False
-                    self.store.setValues(
-                        CO, CO_RESET_TRIP, [0]
-                    )
+                    self.coil_block.set_internal(CO_RESET_TRIP, [0])
 
                     if (
-                        command == 1
+                        selector_mode == 1
+                        and command == 1
                         and not self.cb_closed
                         and self.transition_target is None
                     ):
@@ -329,20 +402,30 @@ class GISimulator:
                         self.name,
                     )
 
-                if (
-                    command != self.last_command_cb
-                    and self.transition_target is None
-                ):
+                if selector_mode == 1:
+                    if (
+                        command != self.last_command_cb
+                        and self.transition_target is None
+                    ):
+                        self.last_command_cb = command
+                        self.command_cb = command
+                        self.transition_target = command
+                        self.transition_end = now + TRANSIT_S
+                        self._publish_cb(True)
+                        logging.info(
+                            "[%s] CB command -> %s, transit 200 ms",
+                            self.name,
+                            "CLOSE" if command else "OPEN",
+                        )
+                else:
+                    # Consume remote commands while LOCAL/invalid so they do
+                    # not unexpectedly execute if selector later returns REMOTE.
+                    if command != self.last_command_cb:
+                        logging.warning(
+                            "[%s] Remote CB command ditolak: selector bukan REMOTE",
+                            self.name,
+                        )
                     self.last_command_cb = command
-                    self.command_cb = command
-                    self.transition_target = command
-                    self.transition_end = now + TRANSIT_S
-                    self._publish_cb(True)
-                    logging.info(
-                        "[%s] CB command -> %s, transit 200 ms",
-                        self.name,
-                        "CLOSE" if command else "OPEN",
-                    )
 
                 if (
                     self.transition_target is not None
@@ -359,10 +442,8 @@ class GISimulator:
                     self.cb_closed = False
                     self._publish_cb(False)
 
-                self.store.setValues(
-                    DI,
-                    DI_CB_TRIP,
-                    [int(self.trip_latched)],
+                self.coil_block.set_internal(
+                    CO_CB_TRIP, [int(self.trip_latched)]
                 )
 
                 await asyncio.sleep(CONTROL_STEP_S)
@@ -379,16 +460,21 @@ async def run_rtu(gi_number):
 
     logging.info("======================================")
     logging.info(
-        "RTU [%s] berjalan di port %d (Slave ID: %d)",
+        "RTU [%s] berjalan di %s:%d (Unit ID aktif: %s)",
         sim.name,
+        T.ip_node(sim.node_index),
         sim.port,
-        SLAVE_ID,
+        sorted({SLAVE_ID, T.mdbm_unit_id(sim.node_index)}),
     )
     logging.info(
         "GI HR0=trip paksa, HR1=UV paksa; "
         "fault aktif -> CSV seluruh RTU PAUSE",
     )
     logging.info("DP: CLOSED=01, OPEN=10, TRANSIT=00")
+    logging.info(
+        "Multi-client ready: direct/testbench Unit ID 1 + EBC Mdbm Unit ID "
+        f"{T.mdbm_unit_id(sim.node_index)}; FC01 status / FC05 EBC commands."
+    )
     logging.info("======================================")
 
     tasks = [
@@ -400,7 +486,7 @@ async def run_rtu(gi_number):
     try:
         await StartAsyncTcpServer(
             context=sim.context,
-            address=("0.0.0.0", sim.port),
+            address=(T.ip_node(sim.node_index), sim.port),
         )
     finally:
         for task in tasks:

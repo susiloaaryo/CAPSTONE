@@ -1,0 +1,31 @@
+PLC1 — TM221CE40R — 16 output relay
+
+Switch positions: Controller DI88..DI99
+
+Rung 00: %M0 ----( %Q0.0 )  GD01_LBS1  [Controller DI88, ModScan 10089]
+Rung 01: %M1 ----( %Q0.1 )  GD01_LBS2  [Controller DI89, ModScan 10090]
+Rung 02: %M2 ----( %Q0.2 )  GD02_LBS1  [Controller DI90, ModScan 10091]
+Rung 03: %M3 ----( %Q0.3 )  GD02_LBS2  [Controller DI91, ModScan 10092]
+Rung 04: %M4 ----( %Q0.4 )  GD03_LBS1  [Controller DI92, ModScan 10093]
+Rung 05: %M5 ----( %Q0.5 )  GD03_LBS2  [Controller DI93, ModScan 10094]
+Rung 06: %M6 ----( %Q0.6 )  GD04_LBS1  [Controller DI94, ModScan 10095]
+Rung 07: %M7 ----( %Q0.7 )  GD04_LBS2  [Controller DI95, ModScan 10096]
+Rung 08: %M8 ----( %Q0.8 )  GD05_LBS1  [Controller DI96, ModScan 10097]
+Rung 09: %M9 ----( %Q0.9 )  GD05_LBS2  [Controller DI97, ModScan 10098]
+Rung 10: %M10 ----( %Q0.10 )  GI_SATU_CB  [Controller DI98, ModScan 10099]
+Rung 11: %M11 ----( %Q0.11 )  GI_DUA_CB  [Controller DI99, ModScan 10100]
+
+HFD status: first four Controller HFD bits DI26..DI29
+
+Rung 12: %M12 ----( %Q0.12 )  GD01_HFD1  [Controller DI26, ModScan 10027]
+Rung 13: %M13 ----( %Q0.13 )  GD01_HFD2  [Controller DI27, ModScan 10028]
+Rung 14: %M14 ----( %Q0.14 )  GD02_HFD1  [Controller DI28, ModScan 10029]
+Rung 15: %M15 ----( %Q0.15 )  GD02_HFD2  [Controller DI29, ModScan 10030]
+
+Read contract:
+- Target 192.168.250.2:502, Unit ID 1, FC02.
+- Read switch alias range DI88..DI99 (offset 88, quantity 12).
+- Read HFD range DI26..DI29 (offset 26, quantity 4).
+- Map returned bits into %M0..%M15 in order above.
+- Outputs are status indications only; they do not operate field CB/LBS coils.
+- For a switch, OFF is not proof of OPEN; consult validity and RTU-online points.

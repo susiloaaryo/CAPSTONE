@@ -1,0 +1,45 @@
+FLISR NETWORK TOPOLOGY — aligned with NEWEST.ebc
+
+Laptop physical Ethernet / isolated 192.168.250.0/24 subnet:
+  192.168.250.1:502   Saitel HUe MNT / CHFLISR Modbus TCP server
+  192.168.250.2:502   FLISR Controller aggregate server (Unit ID 1, FC02 to HMI/PLC)
+  192.168.250.2:503   System Behavior / Testbench server (local Unit ID 1; EBC Unit ID 30, FC01)
+  192.168.250.2:8501  Streamlit HMI
+  192.168.250.3:502   GI SATU simulator (direct UID 1; HUe MDBM UID 1)
+  192.168.250.4:502   GI DUA simulator (direct UID 1; HUe MDBM UID 3)
+  192.168.250.5:502   GD02 simulator (direct UID 1; HUe MDBM UID 2)
+  192.168.250.6:502   GD03 simulator (direct UID 1; HUe MDBM UID 3)
+  192.168.250.7:502   GD04 simulator (direct UID 1; HUe MDBM UID 4)
+  192.168.250.8:502   GD05 simulator (direct UID 1; HUe MDBM UID 2)
+  192.168.250.9:502   GD01 simulator (direct UID 1; HUe MDBM UID 2)
+
+HUe CHFLISR logical server Unit IDs exposed to controller_rtu.py:
+  UID 1 = S1_GIA, UID 2 = S2_GD1, UID 3 = S3_GD2, UID 4 = S4_GD3,
+  UID 5 = S5_GD4, UID 6 = S6_GD5, UID 7 = S7_GIB.
+
+HUe downstream MDBM polling contract (the Unit ID is configured independently
+for each endpoint):
+  M1_GIA .3 UID1; M2_GD1 .9 UID2; M3_GD2 .5 UID2; M4_GD3 .6 UID3;
+  M5_GD4 .7 UID4; M6_GD5 .8 UID2; M7_GIB .4 UID3.
+  Each field status request uses FC01, start 0, quantity 6 (GI) or 10 (GD).
+
+Mode N: controller.py polls seven simulator IPs directly, Unit ID 1.
+Mode Y: controller_rtu.py talks only to HUe .1:502, CHFLISR Unit IDs 1..7.
+The RTU simulators serve both local UID1 and the EBC downstream UID as aliases.
+
+Testbench EBC M30_TestBench polls laptop .2:503, UID30, FC01 start 0 quantity10.
+The System Behavior service retains UID1 for local HMI tooling.
+
+Important configuration limit:
+The supplied CoreDb Command mappings include switch source points (GI CS1/2,
+GD LBS1 CS1/2, GD LBS2 CS6/7), but reset entries for GD HFD and GI trip do not
+have source coordinates. Mode Y reset therefore needs additional CoreDb Command
+source mapping in Easergy Builder; see EBC_CS_MAPPING.md. Do not assume this
+software-only package can create a missing point in the physical HUe project.
+
+Network requirements:
+- Assign laptop aliases .2-.9/24 to the physical Ethernet NIC connected to HUe.
+- Confirm HUe MNT `.1/24` and CHFLISR TCP/502 against the live project.
+- Permit inbound TCP/502 and TCP/503 on the isolated lab NIC only.
+- Keep Modbus and testbench ports off public/campus networks.
+- Confirm routing/firewall and IP uniqueness before start.

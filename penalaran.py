@@ -67,19 +67,22 @@ def konfigurasi_normal(posisi):
     return True
 
 
-def kondisi_awal_terpenuhi(posisi, hfd, under_voltage, jumlah_online):
+def kondisi_awal_terpenuhi(posisi, hfd, under_voltage, jumlah_online, semua_remote=True):
     """Syarat kesiagaan SHG.
 
     1. Semua RTU online.
     2. Semua saklar pada konfigurasi normal.
-    3. Tidak ada HFD aktif.
-    4. Tidak ada under-voltage.
+    3. Semua selector L/R switch valid dan REMOTE.
+    4. Tidak ada HFD aktif.
+    5. Tidak ada under-voltage.
 
     Over-voltage tetap dibaca dan dilaporkan oleh controller, tetapi
     ambang alarm OV tidak ditentukan di berkas sumber ini, sehingga
     tidak ditebak menjadi syarat baru di sini.
     """
     if jumlah_online < len(T.NODE):
+        return False
+    if not semua_remote:
         return False
     if not konfigurasi_normal(posisi):
         return False

@@ -1,0 +1,17 @@
+﻿plc,model,plc_ip,rung,ladder_contact,output_coil,equipment_tag,controller_DI_offset,ModScan_display_address,signal_semantics,output_ON_condition
+PLC1,TM221CE40R,192.168.250.11,0,%M0,%Q0.0,GD01_LBS1,88,10089,Switch position indication,CLOSE confirmed and owning RTU online; OFF is not proof of OPEN
+PLC1,TM221CE40R,192.168.250.11,1,%M1,%Q0.1,GD01_LBS2,89,10090,Switch position indication,CLOSE confirmed and owning RTU online; OFF is not proof of OPEN
+PLC1,TM221CE40R,192.168.250.11,2,%M2,%Q0.2,GD02_LBS1,90,10091,Switch position indication,CLOSE confirmed and owning RTU online; OFF is not proof of OPEN
+PLC1,TM221CE40R,192.168.250.11,3,%M3,%Q0.3,GD02_LBS2,91,10092,Switch position indication,CLOSE confirmed and owning RTU online; OFF is not proof of OPEN
+PLC1,TM221CE40R,192.168.250.11,4,%M4,%Q0.4,GD03_LBS1,92,10093,Switch position indication,CLOSE confirmed and owning RTU online; OFF is not proof of OPEN
+PLC1,TM221CE40R,192.168.250.11,5,%M5,%Q0.5,GD03_LBS2,93,10094,Switch position indication,CLOSE confirmed and owning RTU online; OFF is not proof of OPEN
+PLC1,TM221CE40R,192.168.250.11,6,%M6,%Q0.6,GD04_LBS1,94,10095,Switch position indication,CLOSE confirmed and owning RTU online; OFF is not proof of OPEN
+PLC1,TM221CE40R,192.168.250.11,7,%M7,%Q0.7,GD04_LBS2,95,10096,Switch position indication,CLOSE confirmed and owning RTU online; OFF is not proof of OPEN
+PLC1,TM221CE40R,192.168.250.11,8,%M8,%Q0.8,GD05_LBS1,96,10097,Switch position indication,CLOSE confirmed and owning RTU online; OFF is not proof of OPEN
+PLC1,TM221CE40R,192.168.250.11,9,%M9,%Q0.9,GD05_LBS2,97,10098,Switch position indication,CLOSE confirmed and owning RTU online; OFF is not proof of OPEN
+PLC1,TM221CE40R,192.168.250.11,10,%M10,%Q0.10,GI_SATU_CB,98,10099,Switch position indication,CLOSE confirmed and owning RTU online; OFF is not proof of OPEN
+PLC1,TM221CE40R,192.168.250.11,11,%M11,%Q0.11,GI_DUA_CB,99,10100,Switch position indication,CLOSE confirmed and owning RTU online; OFF is not proof of OPEN
+PLC1,TM221CE40R,192.168.250.11,12,%M12,%Q0.12,GD01_HFD1,26,10027,HFD status/alarm bit,Controller HFD bit = 1 (active/true in current simulator mapping)
+PLC1,TM221CE40R,192.168.250.11,13,%M13,%Q0.13,GD01_HFD2,27,10028,HFD status/alarm bit,Controller HFD bit = 1 (active/true in current simulator mapping)
+PLC1,TM221CE40R,192.168.250.11,14,%M14,%Q0.14,GD02_HFD1,28,10029,HFD status/alarm bit,Controller HFD bit = 1 (active/true in current simulator mapping)
+PLC1,TM221CE40R,192.168.250.11,15,%M15,%Q0.15,GD02_HFD2,29,10030,HFD status/alarm bit,Controller HFD bit = 1 (active/true in current simulator mapping)

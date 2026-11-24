@@ -1,0 +1,9 @@
+CHFLISR_Unit_ID,Server_Bin,Downstream_RTU_IP,Downstream_Unit_ID,Downstream_MDBM_Status_Function,Controller_to_CHFLISR_Read_Function,Status_Address_Start,Status_Count,GI_Close_Source_Coil,GI_Open_Source_Coil,GD_LBS1_Close_Source_Coil,GD_LBS1_Open_Source_Coil,GD_LBS2_Close_Source_Coil,GD_LBS2_Open_Source_Coil,Proposed_Reset_Source_Coil(s),Existing_Reset_Destination(s),Reset_Source_in_supplied_CoreDB
+1,S1_GIA,192.168.250.3,1,FC01,FC01_only_for_CS_points,0,6,1,2,,,,,6,M1_GIA CS:0,NO - add SOURCE_COORD S1_GIA CS:6
+2,S2_GD1,192.168.250.9,2,FC01,FC01_only_for_CS_points,0,10,,,1,2,6,7,10;11,M2_GD1 CS:0 and CS:5,NO - add SOURCE_COORD S2_GD1 CS:10/11
+3,S3_GD2,192.168.250.5,2,FC01,FC01_only_for_CS_points,0,10,,,1,2,6,7,10;11,M3_GD2 CS:0 and CS:5,NO - add SOURCE_COORD S3_GD2 CS:10/11
+4,S4_GD3,192.168.250.6,3,FC01,FC01_only_for_CS_points,0,10,,,1,2,6,7,10;11,M4_GD3 CS:0 and CS:5,NO - add SOURCE_COORD S4_GD3 CS:10/11
+5,S5_GD4,192.168.250.7,4,FC01,FC01_only_for_CS_points,0,10,,,1,2,6,7,10;11,M5_GD4 CS:0 and CS:5,NO - add SOURCE_COORD S5_GD4 CS:10/11
+6,S6_GD5,192.168.250.8,2,FC01,FC01_only_for_CS_points,0,10,,,1,2,6,7,10;11,M6_GD5 CS:0 and CS:5,NO - add SOURCE_COORD S6_GD5 CS:10/11
+7,S7_GIB,192.168.250.4,3,FC01,FC01_only_for_CS_points,0,6,1,2,,,,,6,M7_GIB CS:0,NO - add SOURCE_COORD S7_GIB CS:6
+30,S30_TestBench,192.168.250.2,30,FC01,FC01_only_for_CS_points,0,10,,,,,,,,M30_TestBench CS:0..7 -> S30_TestBench,STATUS ONLY

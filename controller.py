@@ -1,17 +1,11 @@
-"""LANGKAH 5 — Program utama algoritma FLISR.
+"""FLISR controller — mode N: direct Modbus TCP ke tujuh RTU simulator.
 
-Berkas ini yang dijalankan. Tugasnya merangkai empat berkas sebelumnya
-jadi satu siklus yang berjalan terus tiap satu detik.
+Ketujuh proses GI/GD tetap terpisah di IP masing-masing (.3 sampai .9),
+dan seluruh pembacaan status serta command switch lewat Modbus TCP.
+Mode N melewati gateway HUe: controller berbicara langsung ke tujuh endpoint.
+Untuk mode melalui HUe pilih Y, yang menjalankan controller_rtu.py.
 
-Program ini punya DUA peran sekaligus, dan itu wajar:
-
-  1. Sebagai CLIENT  -> dia yang bertanya dan memerintah tujuh RTU
-  2. Sebagai SERVER  -> HMI yang bertanya status SHG ke dia, di port 503
-
-Jalankan:  python controller.py
-
-Sebelum menjalankan ini, simulator harus sudah hidup lebih dulu —
-tujuh RTU di port 8020 sampai 8026.
+Jalankan melalui START_SIMULATOR.bat setelah tujuh proses rtu_gi.py/rtu_gd.py.
 """
 
 import asyncio
@@ -63,7 +57,7 @@ class Controller:
         self.detik = 0.0
         self.padam = 0
 
-        # --- Kotak-kotak Modbus yang controller layani di port 503 ---
+        # --- Kotak-kotak Modbus yang controller layani di port 502 ---
         # zero_mode=True penting sekali. Tanpa itu pymodbus menambah 1
         # ke setiap alamat yang masuk, dan seluruh peta register bergeser.
         self.store = ModbusSlaveContext(
@@ -148,6 +142,17 @@ class Controller:
                 [int(closed is not None)],
             )
 
+        # Selector feedback untuk 12 switch: DI64..75 = Local, DI76..87 = Remote.
+        for idx, key in enumerate(T.semua_switch()):
+            self.context[0].setValues(
+                T.DI, T.DI_LR_LOCAL_BASE + idx,
+                [int(data.lr_local.get(key, 0))],
+            )
+            self.context[0].setValues(
+                T.DI, T.DI_LR_REMOTE_BASE + idx,
+                [int(data.lr_remote.get(key, 0))],
+            )
+
         # Dua HFD per gardu distribusi.
         for offset, node in enumerate(T.GARDU):
             self.context[0].setValues(
@@ -166,13 +171,31 @@ class Controller:
             )
 
         for node in range(len(T.NODE)):
+            # UV/OV untuk GD tidak lagi dipetakan di CoreDb HUe. Pertahankan
+            # layout DI eksternal agar HMI/PLC tidak bergeser, tetapi laporkan
+            # 0 untuk lima GD. UV/OV GI tetap dibaca dan dipublikasikan.
+            if T.adalah_gardu_induk(node):
+                uv = int(data.under_voltage.get(node, 0))
+                ov = int(data.over_voltage.get(node, 0))
+            else:
+                uv = 0
+                ov = 0
+            self.context[0].setValues(T.DI, T.DI_UV_NODE_BASE + node, [uv])
+            self.context[0].setValues(T.DI, T.DI_OV_NODE_BASE + node, [ov])
+
+        # PLC-friendly status aliases in the exact order of the M221 ladder:
+        # M0..M9 = GD01..GD05 LBS1/LBS2, M10 = GI SATU CB, M11 = GI DUA CB.
+        # Alias ON only means confirmed CLOSED while the owning RTU is online.
+        # OPEN, invalid double-point, transit, or offline all report 0 here;
+        # use the original validity/online points to distinguish those cases.
+        all_switches = T.semua_switch()
+        for plc_index, switch_index in enumerate(T.DI_PLC_SWITCH_ORDER):
+            node, bay = all_switches[switch_index]
+            closed = data.posisi.get((node, bay))
+            confirmed_closed = (node in data.online) and (closed is True)
             self.context[0].setValues(
-                T.DI, T.DI_UV_NODE_BASE + node,
-                [int(data.under_voltage.get(node, 0))],
-            )
-            self.context[0].setValues(
-                T.DI, T.DI_OV_NODE_BASE + node,
-                [int(data.over_voltage.get(node, 0))],
+                T.DI, T.DI_PLC_SWITCH_BASE + plc_index,
+                [int(confirmed_closed)],
             )
 
     def lapor(self, fase, sasaran=None, detik=None, padam=None):
@@ -790,6 +813,12 @@ class Controller:
             self.lapor(T.LOCK_OUT)
             return
 
+        # Jika satu selector bukan REMOTE, kesiagaan lama langsung dibatalkan.
+        # Fault tetap dapat terdeteksi, tetapi FLISR tidak akan menjalankan
+        # switching otomatis dalam kondisi selector Local/invalid.
+        if not data.semua_remote():
+            self.siaga = False
+
         # --- Cari pemicu -------------------------------------------
         # Aturan D2: pemicu = CB TERBUKA  ATAU  under voltage.
         # Perhatikan syarat posisi CB-nya berlawanan di dua baris ini.
@@ -815,7 +844,8 @@ class Controller:
         # --- Tidak ada pemicu: perbarui kesiagaan ------------------
         if gi_trip is None and gi_mati is None:
             siap = P.kondisi_awal_terpenuhi(
-                data.posisi, data.hfd, data.under_voltage, len(data.online)
+                data.posisi, data.hfd, data.under_voltage, len(data.online),
+                data.semua_remote(),
             )
             if siap != self.siaga:
                 logging.info("SHG %s", "SIAGA" if siap else "tidak siaga")
@@ -903,8 +933,8 @@ class Controller:
 
     async def loop(self):
         await self.lapangan.sambung()
-        logging.info("Controller FLISR siap. Status SHG dilayani di port %d",
-                     T.PORT_SHG)
+        logging.info("Controller FLISR siap. Status SHG dilayani di %s:%d",
+                     T.HOST_SIMULATOR, T.PORT_SHG)
 
         while True:
             await asyncio.sleep(T.T_POLL)
@@ -919,13 +949,13 @@ class Controller:
 async def jalankan():
     ctrl = Controller()
 
-    # create_task menjalankan loop algoritma di latar belakang.
-    asyncio.create_task(ctrl.loop())
-
-    # StartAsyncTcpServer memblokir selamanya, melayani HMI.
-    # Dua-duanya hidup bersamaan di satu proses.
+    # Algoritma tetap berjalan di proses controller, sedangkan GI/GD adalah
+    # tujuh server RTU terpisah. lapangan.Lapangan membaca dan menulis ke
+    # tiap RTU melalui Modbus TCP; server di .2:502 menyajikan status agregat
+    # kepada HMI, testbench, dan PLC.
+    asyncio.create_task(ctrl.loop(), name="flisr-controller-direct-modbus-loop")
     await StartAsyncTcpServer(
-        context=ctrl.context, address=("0.0.0.0", T.PORT_SHG)
+        context=ctrl.context, address=(T.HOST_SIMULATOR, T.PORT_SHG)
     )
 
 

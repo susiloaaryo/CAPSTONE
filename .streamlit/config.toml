@@ -1,0 +1,7 @@
+[server]
+address = "192.168.250.2"
+port = 8501
+headless = true
+
+[browser]
+gatherUsageStats = false

@@ -91,14 +91,20 @@ def enable_dan_siaga():
 def kirim_case(case):
     tb.write_register(HR_MODE, 0, slave=UNIT)
     tb.write_register(HR_CASE, case, slave=UNIT)
-    r = tb.read_holding_registers(HR_TRIGGER, 2, slave=UNIT).registers
+    r = tb.read_holding_registers(HR_TRIGGER, 2, slave=UNIT)
+    if r.isError():
+        # Testbench versi lama tanpa handshake TRIGGER/APPLIED: case langsung
+        # diterapkan saat HR_CASE berubah. Beri waktu watcher (siklus 0,05 s).
+        time.sleep(0.3)
+        return 1
+    r = r.registers
     seq = 1 if r[0] >= 65535 else r[0] + 1
     tb.write_register(HR_TRIGGER, seq, slave=UNIT)
     batas = time.time() + 10
     while time.time() < batas:
-        a = tb.read_holding_registers(HR_APPLIED, 2, slave=UNIT).registers
-        if a[0] == seq:
-            return a[1]
+        a = tb.read_holding_registers(HR_APPLIED, 2, slave=UNIT)
+        if not a.isError() and a.registers[0] == seq:
+            return a.registers[1]
         time.sleep(0.05)
     return -1
 
